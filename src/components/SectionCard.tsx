@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Download, Upload, Loader2 } from "lucide-react";
 import {
+  autoCropBitmap,
   compressToRange,
   loadBitmap,
   rotateBitmap,
