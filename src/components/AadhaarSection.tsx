@@ -31,7 +31,7 @@ function bitmapToPreview(bmp: ImageBitmap): Promise<string> {
   });
 }
 
-export function AadhaarSection() {
+export function AadhaarSection({ cropSensitivity }: { cropSensitivity: number }) {
   const [front, setFront] = useState<SideState>(initialSide);
   const [back, setBack] = useState<SideState>(initialSide);
   const [result, setResult] = useState<CompressResult | null>(null);
@@ -55,7 +55,7 @@ export function AadhaarSection() {
   ) => {
     try {
       const raw = await loadBitmap(file);
-      const bmp = await autoCropBitmap(raw);
+      const bmp = await autoCropBitmap(raw, cropSensitivity);
       const url = await bitmapToPreview(bmp);
       const state = { file, bitmap: bmp, previewUrl: url };
       if (which === "front") {
