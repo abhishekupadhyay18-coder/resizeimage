@@ -63,6 +63,82 @@ export async function mergeVertical(
   return await createImageBitmap(canvas);
 }
 
+/**
+ * Auto-crop uniform borders (e.g. white scanner background, dark phone-camera
+ * margins around a document). Scans rows/cols from each edge and trims while
+ * the edge remains near the corner-sampled background color.
+ */
+export async function autoCropBitmap(bitmap: ImageBitmap): Promise<ImageBitmap> {
+  const w = bitmap.width;
+  const h = bitmap.height;
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas 2D context unavailable");
+  ctx.drawImage(bitmap, 0, 0);
+  const { data } = ctx.getImageData(0, 0, w, h);
+
+  // Sample the 4 corners to guess background color.
+  const sample = (x: number, y: number) => {
+    const i = (y * w + x) * 4;
+    return [data[i], data[i + 1], data[i + 2]] as const;
+  };
+  const corners = [sample(0, 0), sample(w - 1, 0), sample(0, h - 1), sample(w - 1, h - 1)];
+  const bg = [0, 1, 2].map(
+    (k) => corners.reduce((s, c) => s + c[k], 0) / corners.length,
+  );
+
+  const tol = 28; // per-channel tolerance
+  const rowMatchRatio = 0.985; // ≥98.5% of pixels in the edge line match bg
+  const isBg = (i: number) =>
+    Math.abs(data[i] - bg[0]) <= tol &&
+    Math.abs(data[i + 1] - bg[1]) <= tol &&
+    Math.abs(data[i + 2] - bg[2]) <= tol;
+
+  const rowIsBg = (y: number) => {
+    let hit = 0;
+    const base = y * w * 4;
+    for (let x = 0; x < w; x++) if (isBg(base + x * 4)) hit++;
+    return hit / w >= rowMatchRatio;
+  };
+  const colIsBg = (x: number) => {
+    let hit = 0;
+    for (let y = 0; y < h; y++) if (isBg((y * w + x) * 4)) hit++;
+    return hit / h >= rowMatchRatio;
+  };
+
+  let top = 0;
+  while (top < h - 1 && rowIsBg(top)) top++;
+  let bottom = h - 1;
+  while (bottom > top && rowIsBg(bottom)) bottom--;
+  let left = 0;
+  while (left < w - 1 && colIsBg(left)) left++;
+  let right = w - 1;
+  while (right > left && colIsBg(right)) right--;
+
+  // Add a small safety margin so we don't shave into the document edge.
+  const pad = Math.round(Math.min(w, h) * 0.005);
+  top = Math.max(0, top - pad);
+  left = Math.max(0, left - pad);
+  bottom = Math.min(h - 1, bottom + pad);
+  right = Math.min(w - 1, right + pad);
+
+  const cw = right - left + 1;
+  const ch = bottom - top + 1;
+  // If crop is trivial or too aggressive (<40% of area), skip.
+  if (cw >= w * 0.98 && ch >= h * 0.98) return bitmap;
+  if (cw * ch < w * h * 0.4) return bitmap;
+
+  const out = document.createElement("canvas");
+  out.width = cw;
+  out.height = ch;
+  const octx = out.getContext("2d");
+  if (!octx) throw new Error("Canvas 2D context unavailable");
+  octx.drawImage(bitmap, left, top, cw, ch, 0, 0, cw, ch);
+  return await createImageBitmap(out);
+}
+
 function canvasToBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
   return new Promise((resolve, reject) => {
     canvas.toBlob(
