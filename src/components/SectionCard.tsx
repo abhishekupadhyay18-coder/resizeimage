@@ -86,7 +86,7 @@ export function SectionCard({
     setResultUrl(null);
     try {
       const raw = await loadBitmap(f);
-      const bmp = await autoCropBitmap(raw);
+      const bmp = await autoCropBitmap(raw, cropSensitivity);
       setFile(f);
       setBitmap(bmp);
       updatePreview(bmp);
@@ -109,7 +109,7 @@ export function SectionCard({
   const autoCrop = async () => {
     if (!bitmap) return;
     setBusy(true);
-    const cropped = await autoCropBitmap(bitmap);
+    const cropped = await autoCropBitmap(bitmap, cropSensitivity);
     setBitmap(cropped);
     updatePreview(cropped);
     await runCompress(cropped);
