@@ -1,10 +1,11 @@
-import { RotateCcw, RotateCw, X } from "lucide-react";
+import { Crop, RotateCcw, RotateCw, X } from "lucide-react";
 
 interface Props {
   url: string;
   label?: string;
   onRotateLeft: () => void;
   onRotateRight: () => void;
+  onAutoCrop?: () => void;
   onClear?: () => void;
   disabled?: boolean;
 }
@@ -14,6 +15,7 @@ export function RotatablePreview({
   label,
   onRotateLeft,
   onRotateRight,
+  onAutoCrop,
   onClear,
   disabled,
 }: Props) {
@@ -27,7 +29,7 @@ export function RotatablePreview({
       <div className="relative overflow-hidden rounded-md border border-border bg-muted">
         <img src={url} alt={label ?? "preview"} className="mx-auto max-h-64 object-contain" />
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={onRotateLeft}
@@ -44,6 +46,16 @@ export function RotatablePreview({
         >
           <RotateCw className="h-3.5 w-3.5" /> Right
         </button>
+        {onAutoCrop && (
+          <button
+            type="button"
+            onClick={onAutoCrop}
+            disabled={disabled}
+            className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-2.5 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-50"
+          >
+            <Crop className="h-3.5 w-3.5" /> Auto crop
+          </button>
+        )}
         {onClear && (
           <button
             type="button"

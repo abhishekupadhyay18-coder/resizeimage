@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Download, Loader2, Upload } from "lucide-react";
 import {
+  autoCropBitmap,
   compressToRange,
   loadBitmap,
   mergeVertical,
@@ -53,7 +54,8 @@ export function AadhaarSection() {
     file: File,
   ) => {
     try {
-      const bmp = await loadBitmap(file);
+      const raw = await loadBitmap(file);
+      const bmp = await autoCropBitmap(raw);
       const url = await bitmapToPreview(bmp);
       const state = { file, bitmap: bmp, previewUrl: url };
       if (which === "front") {
@@ -84,6 +86,20 @@ export function AadhaarSection() {
     if (which === "front") setFront(next);
     else setBack(next);
     // invalidate previous result
+    if (resultUrl) URL.revokeObjectURL(resultUrl);
+    setResult(null);
+    setResultUrl(null);
+  };
+
+  const autoCropSide = async (which: "front" | "back") => {
+    const s = which === "front" ? front : back;
+    if (!s.bitmap) return;
+    const cropped = await autoCropBitmap(s.bitmap);
+    const url = await bitmapToPreview(cropped);
+    if (s.previewUrl) URL.revokeObjectURL(s.previewUrl);
+    const next = { file: s.file, bitmap: cropped, previewUrl: url };
+    if (which === "front") setFront(next);
+    else setBack(next);
     if (resultUrl) URL.revokeObjectURL(resultUrl);
     setResult(null);
     setResultUrl(null);
@@ -168,6 +184,7 @@ export function AadhaarSection() {
         label={label}
         onRotateLeft={() => rotateSide(which, -90)}
         onRotateRight={() => rotateSide(which, 90)}
+        onAutoCrop={() => autoCropSide(which)}
         onClear={() => clearSide(which)}
         disabled={busy}
       />

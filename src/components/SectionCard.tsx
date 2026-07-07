@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Download, Upload, Loader2 } from "lucide-react";
 import {
+  autoCropBitmap,
   compressToRange,
   loadBitmap,
   rotateBitmap,
@@ -82,7 +83,8 @@ export function SectionCard({
     if (resultUrl) URL.revokeObjectURL(resultUrl);
     setResultUrl(null);
     try {
-      const bmp = await loadBitmap(f);
+      const raw = await loadBitmap(f);
+      const bmp = await autoCropBitmap(raw);
       setFile(f);
       setBitmap(bmp);
       updatePreview(bmp);
@@ -100,6 +102,15 @@ export function SectionCard({
     setBitmap(rotated);
     updatePreview(rotated);
     await runCompress(rotated);
+  };
+
+  const autoCrop = async () => {
+    if (!bitmap) return;
+    setBusy(true);
+    const cropped = await autoCropBitmap(bitmap);
+    setBitmap(cropped);
+    updatePreview(cropped);
+    await runCompress(cropped);
   };
 
   const clear = () => {
@@ -163,6 +174,7 @@ export function SectionCard({
               url={previewUrl}
               onRotateLeft={() => rotate(-90)}
               onRotateRight={() => rotate(90)}
+              onAutoCrop={autoCrop}
               onClear={clear}
               disabled={busy}
             />
