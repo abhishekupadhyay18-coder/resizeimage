@@ -16,6 +16,7 @@ interface Props {
   maxKB: number;
   downloadName: string;
   accent: string; // tailwind bg color class for header dot
+  cropSensitivity: number;
 }
 
 export function SectionCard({
@@ -25,6 +26,7 @@ export function SectionCard({
   maxKB,
   downloadName,
   accent,
+  cropSensitivity,
 }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [bitmap, setBitmap] = useState<ImageBitmap | null>(null);
@@ -84,7 +86,7 @@ export function SectionCard({
     setResultUrl(null);
     try {
       const raw = await loadBitmap(f);
-      const bmp = await autoCropBitmap(raw);
+      const bmp = await autoCropBitmap(raw, cropSensitivity);
       setFile(f);
       setBitmap(bmp);
       updatePreview(bmp);
@@ -107,7 +109,7 @@ export function SectionCard({
   const autoCrop = async () => {
     if (!bitmap) return;
     setBusy(true);
-    const cropped = await autoCropBitmap(bitmap);
+    const cropped = await autoCropBitmap(bitmap, cropSensitivity);
     setBitmap(cropped);
     updatePreview(cropped);
     await runCompress(cropped);
