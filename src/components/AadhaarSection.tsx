@@ -91,6 +91,20 @@ export function AadhaarSection() {
     setResultUrl(null);
   };
 
+  const autoCropSide = async (which: "front" | "back") => {
+    const s = which === "front" ? front : back;
+    if (!s.bitmap) return;
+    const cropped = await autoCropBitmap(s.bitmap);
+    const url = await bitmapToPreview(cropped);
+    if (s.previewUrl) URL.revokeObjectURL(s.previewUrl);
+    const next = { file: s.file, bitmap: cropped, previewUrl: url };
+    if (which === "front") setFront(next);
+    else setBack(next);
+    if (resultUrl) URL.revokeObjectURL(resultUrl);
+    setResult(null);
+    setResultUrl(null);
+  };
+
   const clearSide = (which: "front" | "back") => {
     const s = which === "front" ? front : back;
     if (s.previewUrl) URL.revokeObjectURL(s.previewUrl);
