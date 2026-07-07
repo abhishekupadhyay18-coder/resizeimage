@@ -77,14 +77,23 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { title: "Document Image Compressor — Passport, Ghosna Patra, Aadhaar" },
+      {
+        name: "description",
+        content:
+          "Compress passport photo, Ghosna Patra, and Aadhaar card images to strict KB ranges. Sharp, clear, ready to upload — runs fully in your browser.",
+      },
+      {
+        property: "og:title",
+        content: "Document Image Compressor — Passport, Ghosna Patra, Aadhaar",
+      },
+      {
+        property: "og:description",
+        content:
+          "Reduce passport, Ghosna Patra and Aadhaar images to exact KB sizes with maximum clarity.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:site", content: "@Lovable" },
     ],
     links: [
       {
