@@ -64,11 +64,22 @@ export async function mergeVertical(
 }
 
 /**
- * Auto-crop uniform borders (e.g. white scanner background, dark phone-camera
- * margins around a document). Scans rows/cols from each edge and trims while
- * the edge remains near the corner-sampled background color.
+ * Auto-crop uniform borders. `sensitivity` is 0–100:
+ *  - 0   → disabled (returns the bitmap unchanged)
+ *  - 50  → balanced (default)
+ *  - 100 → very aggressive: high color tolerance, low match ratio, no min-area guard
  */
-export async function autoCropBitmap(bitmap: ImageBitmap): Promise<ImageBitmap> {
+export async function autoCropBitmap(
+  bitmap: ImageBitmap,
+  sensitivity = 50,
+): Promise<ImageBitmap> {
+  if (sensitivity <= 0) return bitmap;
+  const s = Math.min(100, Math.max(1, sensitivity)) / 100;
+  // Map sensitivity → thresholds.
+  const tol = Math.round(8 + s * 62); // 8..70 per-channel tolerance
+  const rowMatchRatio = 0.999 - s * 0.099; // 0.999..0.90
+  const minAreaFrac = 0.6 - s * 0.55; // 0.60..0.05 (higher sensitivity = allow tighter crops)
+
   const w = bitmap.width;
   const h = bitmap.height;
   const canvas = document.createElement("canvas");
@@ -79,18 +90,15 @@ export async function autoCropBitmap(bitmap: ImageBitmap): Promise<ImageBitmap> 
   ctx.drawImage(bitmap, 0, 0);
   const { data } = ctx.getImageData(0, 0, w, h);
 
-  // Sample the 4 corners to guess background color.
   const sample = (x: number, y: number) => {
     const i = (y * w + x) * 4;
     return [data[i], data[i + 1], data[i + 2]] as const;
   };
   const corners = [sample(0, 0), sample(w - 1, 0), sample(0, h - 1), sample(w - 1, h - 1)];
   const bg = [0, 1, 2].map(
-    (k) => corners.reduce((s, c) => s + c[k], 0) / corners.length,
+    (k) => corners.reduce((sum, c) => sum + c[k], 0) / corners.length,
   );
 
-  const tol = 28; // per-channel tolerance
-  const rowMatchRatio = 0.985; // ≥98.5% of pixels in the edge line match bg
   const isBg = (i: number) =>
     Math.abs(data[i] - bg[0]) <= tol &&
     Math.abs(data[i + 1] - bg[1]) <= tol &&
@@ -117,8 +125,9 @@ export async function autoCropBitmap(bitmap: ImageBitmap): Promise<ImageBitmap> 
   let right = w - 1;
   while (right > left && colIsBg(right)) right--;
 
-  // Add a small safety margin so we don't shave into the document edge.
-  const pad = Math.round(Math.min(w, h) * 0.005);
+  // Safety pad shrinks as sensitivity grows.
+  const padFrac = 0.01 * (1 - s);
+  const pad = Math.round(Math.min(w, h) * padFrac);
   top = Math.max(0, top - pad);
   left = Math.max(0, left - pad);
   bottom = Math.min(h - 1, bottom + pad);
@@ -126,9 +135,8 @@ export async function autoCropBitmap(bitmap: ImageBitmap): Promise<ImageBitmap> 
 
   const cw = right - left + 1;
   const ch = bottom - top + 1;
-  // If crop is trivial or too aggressive (<40% of area), skip.
-  if (cw >= w * 0.98 && ch >= h * 0.98) return bitmap;
-  if (cw * ch < w * h * 0.4) return bitmap;
+  if (cw >= w * 0.995 && ch >= h * 0.995) return bitmap;
+  if (cw * ch < w * h * minAreaFrac) return bitmap;
 
   const out = document.createElement("canvas");
   out.width = cw;
