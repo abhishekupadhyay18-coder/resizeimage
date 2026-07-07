@@ -77,7 +77,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Document Image Compressor — Passport, Ghosna Patra, Aadhaar" },
+      { title: "Document Image Compressor" },
       {
         name: "description",
         content:
@@ -94,6 +94,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
+      { property: "og:title", content: "Document Image Compressor" },
+      { name: "twitter:title", content: "Document Image Compressor" },
+      { name: "description", content: "Compress passport photo, Ghosna Patra, and Aadhaar card images to strict KB ranges. Sharp, clear, ready to upload — runs fully in your browser." },
+      { property: "og:description", content: "Compress passport photo, Ghosna Patra, and Aadhaar card images to strict KB ranges. Sharp, clear, ready to upload — runs fully in your browser." },
+      { name: "twitter:description", content: "Compress passport photo, Ghosna Patra, and Aadhaar card images to strict KB ranges. Sharp, clear, ready to upload — runs fully in your browser." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/6428d22e-7cfb-4d4c-97b2-6a500db4a435/id-preview-8c83d64d--9be39da1-c062-4ac3-8070-96ce014bf9fd.lovable.app-1783397263483.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/6428d22e-7cfb-4d4c-97b2-6a500db4a435/id-preview-8c83d64d--9be39da1-c062-4ac3-8070-96ce014bf9fd.lovable.app-1783397263483.png" },
     ],
     links: [
       {
