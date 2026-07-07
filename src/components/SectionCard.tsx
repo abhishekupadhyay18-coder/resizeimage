@@ -16,6 +16,7 @@ interface Props {
   maxKB: number;
   downloadName: string;
   accent: string; // tailwind bg color class for header dot
+  cropSensitivity: number;
 }
 
 export function SectionCard({
@@ -25,6 +26,7 @@ export function SectionCard({
   maxKB,
   downloadName,
   accent,
+  cropSensitivity,
 }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [bitmap, setBitmap] = useState<ImageBitmap | null>(null);
