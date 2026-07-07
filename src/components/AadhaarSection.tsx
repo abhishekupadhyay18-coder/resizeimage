@@ -184,6 +184,7 @@ export function AadhaarSection() {
         label={label}
         onRotateLeft={() => rotateSide(which, -90)}
         onRotateRight={() => rotateSide(which, 90)}
+        onAutoCrop={() => autoCropSide(which)}
         onClear={() => clearSide(which)}
         disabled={busy}
       />
