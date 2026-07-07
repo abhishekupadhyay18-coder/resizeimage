@@ -94,7 +94,7 @@ export function AadhaarSection({ cropSensitivity }: { cropSensitivity: number })
   const autoCropSide = async (which: "front" | "back") => {
     const s = which === "front" ? front : back;
     if (!s.bitmap) return;
-    const cropped = await autoCropBitmap(s.bitmap);
+    const cropped = await autoCropBitmap(s.bitmap, cropSensitivity);
     const url = await bitmapToPreview(cropped);
     if (s.previewUrl) URL.revokeObjectURL(s.previewUrl);
     const next = { file: s.file, bitmap: cropped, previewUrl: url };
