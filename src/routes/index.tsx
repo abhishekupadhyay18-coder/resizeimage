@@ -1,24 +1,49 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { SectionCard } from "@/components/SectionCard";
+import { AadhaarSection } from "@/components/AadhaarSection";
 
-// No head() here: the home route inherits title/description/og/twitter from
-// __root.tsx, and ships no og:image so serve-time hosting can inject the
-// project's social preview (explicit og:image or latest screenshot).
 export const Route = createFileRoute("/")({
   component: Index,
 });
 
-// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
 function Index() {
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
+    <div className="min-h-screen bg-background">
+      <header className="border-b border-border">
+        <div className="mx-auto max-w-3xl px-4 py-6">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            Document Image Compressor
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Compress passport photo, Ghosna Patra, and Aadhaar card to strict KB ranges — sharp
+            and clear, ready to upload.
+          </p>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-3xl space-y-5 px-4 py-6">
+        <SectionCard
+          title="Passport Size Photograph"
+          description="Your passport photo, auto-compressed."
+          minKB={40}
+          maxKB={45}
+          downloadName="passport.jpg"
+          accent="bg-sky-500"
+        />
+        <SectionCard
+          title="Ghosna Patra"
+          description="Declaration document image."
+          minKB={90}
+          maxKB={95}
+          downloadName="ghosna-patra.jpg"
+          accent="bg-violet-500"
+        />
+        <AadhaarSection />
+
+        <footer className="pt-4 text-center text-xs text-muted-foreground">
+          All processing happens on your device. Nothing is uploaded.
+        </footer>
+      </main>
     </div>
   );
 }
