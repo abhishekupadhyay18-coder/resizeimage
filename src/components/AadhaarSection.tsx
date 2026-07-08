@@ -1,25 +1,27 @@
 import { useEffect, useRef, useState } from "react";
 import { Download, Loader2, Upload } from "lucide-react";
 import {
-  autoCropBitmap,
   compressToRange,
+  cropBitmap,
   loadBitmap,
   mergeVertical,
   rotateBitmap,
   type CompressResult,
+  type CropRect,
 } from "@/lib/compress-image";
-import { RotatablePreview } from "./RotatablePreview";
+import { CropPreview } from "./CropPreview";
 
 const MIN_KB = 90;
 const MAX_KB = 95;
 
 interface SideState {
   file: File | null;
+  original: ImageBitmap | null;
   bitmap: ImageBitmap | null;
   previewUrl: string | null;
 }
 
-const initialSide: SideState = { file: null, bitmap: null, previewUrl: null };
+const initialSide: SideState = { file: null, original: null, bitmap: null, previewUrl: null };
 
 function bitmapToPreview(bmp: ImageBitmap): Promise<string> {
   return new Promise((resolve) => {
@@ -31,7 +33,7 @@ function bitmapToPreview(bmp: ImageBitmap): Promise<string> {
   });
 }
 
-export function AadhaarSection({ cropSensitivity }: { cropSensitivity: number }) {
+export function AadhaarSection() {
   const [front, setFront] = useState<SideState>(initialSide);
   const [back, setBack] = useState<SideState>(initialSide);
   const [result, setResult] = useState<CompressResult | null>(null);
@@ -49,15 +51,17 @@ export function AadhaarSection({ cropSensitivity }: { cropSensitivity: number })
     };
   }, [front.previewUrl, back.previewUrl, resultUrl]);
 
-  const setSide = async (
-    which: "front" | "back",
-    file: File,
-  ) => {
+  const invalidateResult = () => {
+    if (resultUrl) URL.revokeObjectURL(resultUrl);
+    setResult(null);
+    setResultUrl(null);
+  };
+
+  const setSide = async (which: "front" | "back", file: File) => {
     try {
-      const raw = await loadBitmap(file);
-      const bmp = await autoCropBitmap(raw, cropSensitivity);
+      const bmp = await loadBitmap(file);
       const url = await bitmapToPreview(bmp);
-      const state = { file, bitmap: bmp, previewUrl: url };
+      const state: SideState = { file, original: bmp, bitmap: bmp, previewUrl: url };
       if (which === "front") {
         if (front.previewUrl) URL.revokeObjectURL(front.previewUrl);
         setFront(state);
@@ -65,10 +69,7 @@ export function AadhaarSection({ cropSensitivity }: { cropSensitivity: number })
         if (back.previewUrl) URL.revokeObjectURL(back.previewUrl);
         setBack(state);
       }
-      // reset previous merge result on new upload
-      if (resultUrl) URL.revokeObjectURL(resultUrl);
-      setResult(null);
-      setResultUrl(null);
+      invalidateResult();
       setError(null);
     } catch (e) {
       setError("Could not read image. Use JPG, PNG or WEBP.");
@@ -76,33 +77,39 @@ export function AadhaarSection({ cropSensitivity }: { cropSensitivity: number })
     }
   };
 
+  const updateSide = async (which: "front" | "back", bmp: ImageBitmap, alsoOriginal = false) => {
+    const s = which === "front" ? front : back;
+    const url = await bitmapToPreview(bmp);
+    if (s.previewUrl) URL.revokeObjectURL(s.previewUrl);
+    const next: SideState = {
+      file: s.file,
+      original: alsoOriginal ? bmp : s.original,
+      bitmap: bmp,
+      previewUrl: url,
+    };
+    if (which === "front") setFront(next);
+    else setBack(next);
+    invalidateResult();
+  };
+
   const rotateSide = async (which: "front" | "back", deg: number) => {
     const s = which === "front" ? front : back;
     if (!s.bitmap) return;
     const rotated = await rotateBitmap(s.bitmap, deg);
-    const url = await bitmapToPreview(rotated);
-    if (s.previewUrl) URL.revokeObjectURL(s.previewUrl);
-    const next = { file: s.file, bitmap: rotated, previewUrl: url };
-    if (which === "front") setFront(next);
-    else setBack(next);
-    // invalidate previous result
-    if (resultUrl) URL.revokeObjectURL(resultUrl);
-    setResult(null);
-    setResultUrl(null);
+    await updateSide(which, rotated, true);
   };
 
-  const autoCropSide = async (which: "front" | "back") => {
+  const applyCropSide = async (which: "front" | "back", rect: CropRect) => {
     const s = which === "front" ? front : back;
     if (!s.bitmap) return;
-    const cropped = await autoCropBitmap(s.bitmap, cropSensitivity);
-    const url = await bitmapToPreview(cropped);
-    if (s.previewUrl) URL.revokeObjectURL(s.previewUrl);
-    const next = { file: s.file, bitmap: cropped, previewUrl: url };
-    if (which === "front") setFront(next);
-    else setBack(next);
-    if (resultUrl) URL.revokeObjectURL(resultUrl);
-    setResult(null);
-    setResultUrl(null);
+    const cropped = await cropBitmap(s.bitmap, rect);
+    await updateSide(which, cropped);
+  };
+
+  const resetSide = async (which: "front" | "back") => {
+    const s = which === "front" ? front : back;
+    if (!s.original) return;
+    await updateSide(which, s.original);
   };
 
   const clearSide = (which: "front" | "back") => {
@@ -115,18 +122,14 @@ export function AadhaarSection({ cropSensitivity }: { cropSensitivity: number })
       setBack(initialSide);
       if (backInput.current) backInput.current.value = "";
     }
-    if (resultUrl) URL.revokeObjectURL(resultUrl);
-    setResult(null);
-    setResultUrl(null);
+    invalidateResult();
   };
 
   const mergeAndCompress = async () => {
     if (!front.bitmap || !back.bitmap) return;
     setBusy(true);
     setError(null);
-    if (resultUrl) URL.revokeObjectURL(resultUrl);
-    setResultUrl(null);
-    setResult(null);
+    invalidateResult();
     try {
       const merged = await mergeVertical(front.bitmap, back.bitmap);
       const r = await compressToRange(merged, MIN_KB * 1024, MAX_KB * 1024);
@@ -151,7 +154,7 @@ export function AadhaarSection({ cropSensitivity }: { cropSensitivity: number })
     inputRef: React.RefObject<HTMLInputElement | null>,
   ) => {
     const label = which === "front" ? "Front" : "Back";
-    if (!state.file) {
+    if (!state.file || !state.bitmap || !state.previewUrl) {
       return (
         <label
           className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-muted/30 px-3 py-6 text-center hover:bg-muted"
@@ -179,12 +182,15 @@ export function AadhaarSection({ cropSensitivity }: { cropSensitivity: number })
       );
     }
     return (
-      <RotatablePreview
-        url={state.previewUrl!}
+      <CropPreview
+        url={state.previewUrl}
+        naturalWidth={state.bitmap.width}
+        naturalHeight={state.bitmap.height}
         label={label}
+        onApplyCrop={(r) => applyCropSide(which, r)}
+        onReset={() => resetSide(which)}
         onRotateLeft={() => rotateSide(which, -90)}
         onRotateRight={() => rotateSide(which, 90)}
-        onAutoCrop={() => autoCropSide(which)}
         onClear={() => clearSide(which)}
         disabled={busy}
       />
