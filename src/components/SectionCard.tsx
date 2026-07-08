@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Download, Upload, Loader2 } from "lucide-react";
 import {
-  autoCropBitmap,
   compressToRange,
+  cropBitmap,
   loadBitmap,
   rotateBitmap,
   type CompressResult,
+  type CropRect,
 } from "@/lib/compress-image";
-import { RotatablePreview } from "./RotatablePreview";
+import { CropPreview } from "./CropPreview";
 
 interface Props {
   title: string;
@@ -15,8 +16,7 @@ interface Props {
   minKB: number;
   maxKB: number;
   downloadName: string;
-  accent: string; // tailwind bg color class for header dot
-  cropSensitivity: number;
+  accent: string;
 }
 
 export function SectionCard({
@@ -26,9 +26,9 @@ export function SectionCard({
   maxKB,
   downloadName,
   accent,
-  cropSensitivity,
 }: Props) {
   const [file, setFile] = useState<File | null>(null);
+  const [originalBitmap, setOriginalBitmap] = useState<ImageBitmap | null>(null);
   const [bitmap, setBitmap] = useState<ImageBitmap | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [result, setResult] = useState<CompressResult | null>(null);
@@ -49,11 +49,17 @@ export function SectionCard({
     canvas.width = bmp.width;
     canvas.height = bmp.height;
     canvas.getContext("2d")!.drawImage(bmp, 0, 0);
-    canvas.toBlob((b) => {
-      if (!b) return;
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      setPreviewUrl(URL.createObjectURL(b));
-    }, "image/jpeg", 0.85);
+    canvas.toBlob(
+      (b) => {
+        if (!b) return;
+        setPreviewUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return URL.createObjectURL(b);
+        });
+      },
+      "image/jpeg",
+      0.85,
+    );
   };
 
   const runCompress = async (bmp: ImageBitmap) => {
@@ -85,9 +91,9 @@ export function SectionCard({
     if (resultUrl) URL.revokeObjectURL(resultUrl);
     setResultUrl(null);
     try {
-      const raw = await loadBitmap(f);
-      const bmp = await autoCropBitmap(raw, cropSensitivity);
+      const bmp = await loadBitmap(f);
       setFile(f);
+      setOriginalBitmap(bmp);
       setBitmap(bmp);
       updatePreview(bmp);
       await runCompress(bmp);
@@ -102,22 +108,32 @@ export function SectionCard({
     setBusy(true);
     const rotated = await rotateBitmap(bitmap, deg);
     setBitmap(rotated);
+    setOriginalBitmap(rotated);
     updatePreview(rotated);
     await runCompress(rotated);
   };
 
-  const autoCrop = async () => {
+  const applyCrop = async (rect: CropRect) => {
     if (!bitmap) return;
     setBusy(true);
-    const cropped = await autoCropBitmap(bitmap, cropSensitivity);
+    const cropped = await cropBitmap(bitmap, rect);
     setBitmap(cropped);
     updatePreview(cropped);
     await runCompress(cropped);
   };
 
+  const resetCrop = async () => {
+    if (!originalBitmap) return;
+    setBusy(true);
+    setBitmap(originalBitmap);
+    updatePreview(originalBitmap);
+    await runCompress(originalBitmap);
+  };
+
   const clear = () => {
     setFile(null);
     setBitmap(null);
+    setOriginalBitmap(null);
     setResult(null);
     setError(null);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -171,12 +187,15 @@ export function SectionCard({
         </label>
       ) : (
         <div className="mt-4 space-y-4">
-          {previewUrl && (
-            <RotatablePreview
+          {previewUrl && bitmap && (
+            <CropPreview
               url={previewUrl}
+              naturalWidth={bitmap.width}
+              naturalHeight={bitmap.height}
+              onApplyCrop={applyCrop}
+              onReset={resetCrop}
               onRotateLeft={() => rotate(-90)}
               onRotateRight={() => rotate(90)}
-              onAutoCrop={autoCrop}
               onClear={clear}
               disabled={busy}
             />
