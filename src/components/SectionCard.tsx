@@ -113,6 +113,16 @@ export function SectionCard({
     await runCompress(rotated);
   };
 
+  const rotateFine = async (deg: number) => {
+    if (!bitmap || deg === 0) return;
+    setBusy(true);
+    const rotated = await rotateBitmap(bitmap, deg);
+    setBitmap(rotated);
+    setOriginalBitmap(rotated);
+    updatePreview(rotated);
+    await runCompress(rotated);
+  };
+
   const applyCrop = async (rect: CropRect) => {
     if (!bitmap) return;
     setBusy(true);
@@ -196,6 +206,7 @@ export function SectionCard({
               onReset={resetCrop}
               onRotateLeft={() => rotate(-90)}
               onRotateRight={() => rotate(90)}
+              onRotateFine={rotateFine}
               onClear={clear}
               disabled={busy}
             />
