@@ -11,6 +11,7 @@ interface Props {
   onReset: () => void;
   onRotateLeft: () => void;
   onRotateRight: () => void;
+  onRotateFine: (degrees: number) => void;
   onClear?: () => void;
   disabled?: boolean;
 }
@@ -39,6 +40,17 @@ const HANDLES: Array<{ key: string; cx: number; cy: number; cursor: string }> = 
   { key: "w", cx: 0, cy: 0.5, cursor: "ew-resize" },
 ];
 
+// Inset the initial crop so users immediately see a visible box.
+function initialRect(w: number, h: number): CropRect {
+  const inset = 0.08;
+  return {
+    x: Math.round(w * inset),
+    y: Math.round(h * inset),
+    w: Math.round(w * (1 - inset * 2)),
+    h: Math.round(h * (1 - inset * 2)),
+  };
+}
+
 export function CropPreview({
   url,
   naturalWidth,
@@ -48,22 +60,21 @@ export function CropPreview({
   onReset,
   onRotateLeft,
   onRotateRight,
+  onRotateFine,
   onClear,
   disabled,
 }: Props) {
   const imgRef = useRef<HTMLImageElement>(null);
   const [displaySize, setDisplaySize] = useState({ w: 0, h: 0 });
-  const [rect, setRect] = useState<CropRect>({
-    x: 0,
-    y: 0,
-    w: naturalWidth,
-    h: naturalHeight,
-  });
+  const [rect, setRect] = useState<CropRect>(() =>
+    initialRect(naturalWidth, naturalHeight),
+  );
+  const [fineDeg, setFineDeg] = useState(0);
   const dragRef = useRef<DragMode>(null);
 
-  // Reset rect when image changes
   useEffect(() => {
-    setRect({ x: 0, y: 0, w: naturalWidth, h: naturalHeight });
+    setRect(initialRect(naturalWidth, naturalHeight));
+    setFineDeg(0);
   }, [url, naturalWidth, naturalHeight]);
 
   const measure = useCallback(() => {
@@ -145,7 +156,6 @@ export function CropPreview({
     if (h_.includes("s")) {
       h = d.rect.h + dy;
     }
-    // If width/height collapse below min, freeze position
     if (w < MIN_SIZE) {
       if (h_.includes("w")) x = d.rect.x + d.rect.w - MIN_SIZE;
       w = MIN_SIZE;
@@ -179,6 +189,12 @@ export function CropPreview({
     height: rect.h * scaleY,
   };
 
+  const applyFine = () => {
+    if (fineDeg === 0) return;
+    onRotateFine(fineDeg);
+    setFineDeg(0);
+  };
+
   return (
     <div className="space-y-2">
       {label && (
@@ -186,20 +202,21 @@ export function CropPreview({
           {label}
         </div>
       )}
-      <div className="relative mx-auto max-h-64 w-fit overflow-hidden rounded-md border border-border bg-muted select-none touch-none">
+      <div className="relative mx-auto max-h-96 w-fit overflow-hidden rounded-md border border-border bg-muted select-none touch-none">
         <img
           ref={imgRef}
           src={url}
           alt={label ?? "preview"}
           onLoad={measure}
           draggable={false}
-          className="block max-h-64 w-auto object-contain pointer-events-none"
+          style={{ transform: `rotate(${fineDeg}deg)` }}
+          className="block max-h-96 w-auto object-contain pointer-events-none transition-transform"
         />
         {displaySize.w > 0 && (
           <>
             {/* Dim overlays */}
             <div
-              className="absolute inset-0 bg-black/40 pointer-events-none"
+              className="absolute inset-0 bg-black/50 pointer-events-none"
               style={{
                 clipPath: `polygon(
                   0 0, 100% 0, 100% 100%, 0 100%, 0 0,
@@ -213,18 +230,26 @@ export function CropPreview({
             />
             {/* Crop rect */}
             <div
-              className="absolute border-2 border-primary cursor-move"
+              className="absolute border-2 border-primary cursor-move shadow-[0_0_0_1px_rgba(255,255,255,0.9)]"
               style={{
                 left: displayRect.left,
                 top: displayRect.top,
                 width: displayRect.width,
                 height: displayRect.height,
+                backgroundColor: "hsl(var(--primary) / 0.08)",
               }}
               onPointerDown={(e) => onPointerDown(e, "move")}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
               onPointerCancel={onPointerUp}
             >
+              {/* Rule-of-thirds grid */}
+              <div className="pointer-events-none absolute inset-0">
+                <div className="absolute left-1/3 top-0 h-full w-px bg-white/60" />
+                <div className="absolute left-2/3 top-0 h-full w-px bg-white/60" />
+                <div className="absolute top-1/3 left-0 w-full h-px bg-white/60" />
+                <div className="absolute top-2/3 left-0 w-full h-px bg-white/60" />
+              </div>
               {HANDLES.map((h) => (
                 <div
                   key={h.key}
@@ -232,7 +257,7 @@ export function CropPreview({
                   onPointerMove={onPointerMove}
                   onPointerUp={onPointerUp}
                   onPointerCancel={onPointerUp}
-                  className="absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-sm border border-background bg-primary"
+                  className="absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-sm border-2 border-background bg-primary shadow-md ring-1 ring-primary/50"
                   style={{
                     left: `${h.cx * 100}%`,
                     top: `${h.cy * 100}%`,
@@ -245,6 +270,43 @@ export function CropPreview({
           </>
         )}
       </div>
+
+      {/* Fine rotation slider */}
+      <div className="rounded-md border border-border bg-muted/40 p-2">
+        <div className="flex items-center justify-between text-xs">
+          <span className="font-medium text-muted-foreground">Fine rotate</span>
+          <span className="tabular-nums text-foreground">{fineDeg.toFixed(1)}°</span>
+        </div>
+        <div className="mt-1 flex items-center gap-2">
+          <input
+            type="range"
+            min={-45}
+            max={45}
+            step={0.1}
+            value={fineDeg}
+            disabled={disabled}
+            onChange={(e) => setFineDeg(parseFloat(e.target.value))}
+            className="w-full accent-primary"
+          />
+          <button
+            type="button"
+            onClick={() => setFineDeg(0)}
+            disabled={disabled || fineDeg === 0}
+            className="rounded border border-input bg-background px-2 py-0.5 text-[11px] hover:bg-accent disabled:opacity-50"
+          >
+            0°
+          </button>
+          <button
+            type="button"
+            onClick={applyFine}
+            disabled={disabled || fineDeg === 0}
+            className="rounded bg-primary px-2 py-0.5 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            Apply
+          </button>
+        </div>
+      </div>
+
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
