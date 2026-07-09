@@ -88,7 +88,6 @@ export async function cropBitmap(
   return await createImageBitmap(out);
 }
 
-
 function canvasToBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
   return new Promise((resolve, reject) => {
     canvas.toBlob(
@@ -111,75 +110,102 @@ export interface CompressResult {
  * Compress bitmap to a JPEG whose size in bytes satisfies minBytes < size < maxBytes.
  * Clarity-first: keep resolution as high as possible; only downscale if we cannot
  * fit under maxBytes. Upscale slightly if we cannot exceed minBytes.
+ *
+ * Robustness: always returns the best encode attempted (closest to the target
+ * midpoint) even if no encode strictly landed in range. Handles multi-MB inputs
+ * by starting from a resolution proportional to the target size.
  */
 export async function compressToRange(
   bitmap: ImageBitmap,
   minBytes: number,
   maxBytes: number,
 ): Promise<CompressResult> {
+  const maxAttempts = 80;
   let attempts = 0;
-  const maxAttempts = 40;
-  let scale = 1;
-  let best: CompressResult | null = null;
-  let bestUnder: CompressResult | null = null; // largest size still < maxBytes
+  const midBytes = (minBytes + maxBytes) / 2;
+  let bestOverall: CompressResult | null = null;
+  let bestUnder: CompressResult | null = null;
+  let bestOverallDist = Infinity;
+
+  const consider = (r: CompressResult) => {
+    const d = Math.abs(r.blob.size - midBytes);
+    if (d < bestOverallDist) {
+      bestOverallDist = d;
+      bestOverall = r;
+    }
+    if (r.blob.size < maxBytes) {
+      if (!bestUnder || r.blob.size > bestUnder.blob.size) bestUnder = r;
+    }
+  };
 
   const encode = async (s: number, q: number): Promise<CompressResult> => {
     attempts++;
     const canvas = drawToCanvas(bitmap, bitmap.width * s, bitmap.height * s);
     const blob = await canvasToBlob(canvas, q);
-    return {
+    const r: CompressResult = {
       blob,
       sizeKB: blob.size / 1024,
       width: canvas.width,
       height: canvas.height,
       quality: q,
     };
+    consider(r);
+    return r;
   };
 
-  // Phase 1: at current scale binary-search quality for largest size < maxBytes.
-  // If bestUnder is in range, done. If bestUnder <= minBytes, try upscaling.
-  // If even q=0.5 at this scale >= maxBytes, downscale.
+  // Heuristic starting scale: aim for pixel count ~ maxBytes * 8 (roughly
+  // matches JPEG at q≈0.8 for photos). Cap at 1 so we never upscale first.
+  const pixels = bitmap.width * bitmap.height;
+  const targetPixels = Math.max(maxBytes * 8, 40_000);
+  let scale = Math.min(1, Math.sqrt(targetPixels / pixels));
+  if (!isFinite(scale) || scale <= 0) scale = 1;
+
+  // Iterate: binary-search quality at each scale; if largest-under is in
+  // range, done. Otherwise adjust scale.
   while (attempts < maxAttempts) {
-    let lo = 0.4;
+    let lo = 0.35;
     let hi = 0.98;
-    let localBest: CompressResult | null = null;
-    for (let i = 0; i < 8 && attempts < maxAttempts; i++) {
+    let localBestUnder: CompressResult | null = null;
+    for (let i = 0; i < 7 && attempts < maxAttempts; i++) {
       const q = (lo + hi) / 2;
       const r = await encode(scale, q);
       if (r.blob.size < maxBytes) {
-        localBest = r;
+        if (!localBestUnder || r.blob.size > localBestUnder.blob.size) {
+          localBestUnder = r;
+        }
         lo = q;
       } else {
         hi = q;
       }
     }
 
-    if (localBest) {
-      bestUnder = localBest;
-      if (localBest.blob.size > minBytes) {
-        return localBest; // in range
+    if (localBestUnder) {
+      if (localBestUnder.blob.size > minBytes) {
+        return localBestUnder; // in range
       }
-      // Under min: try to push up by upscaling
-      if (scale >= 4) {
-        best = localBest;
-        break;
-      }
+      // Under min: try to push size up by upscaling.
+      if (scale >= 4) break;
       scale *= 1.15;
       continue;
-    } else {
-      // Even lowest tried quality is too big; downscale
-      if (scale <= 0.05) {
-        // give up; return smallest we can
-        const r = await encode(scale, 0.4);
-        best = r;
-        break;
-      }
-      scale *= 0.85;
-      continue;
     }
+
+    // Even lowest tested quality exceeds maxBytes → downscale aggressively.
+    if (scale <= 0.03) break;
+    scale *= 0.7;
   }
 
-  const result = bestUnder ?? best;
-  if (!result) throw new Error("Compression failed");
+  const result = bestUnder ?? bestOverall;
+  if (!result) {
+    // Last-ditch effort so we never throw.
+    const canvas = drawToCanvas(bitmap, bitmap.width * 0.25, bitmap.height * 0.25);
+    const blob = await canvasToBlob(canvas, 0.4);
+    return {
+      blob,
+      sizeKB: blob.size / 1024,
+      width: canvas.width,
+      height: canvas.height,
+      quality: 0.4,
+    };
+  }
   return result;
 }

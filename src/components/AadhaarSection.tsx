@@ -99,6 +99,13 @@ export function AadhaarSection() {
     await updateSide(which, rotated, true);
   };
 
+  const rotateFineSide = async (which: "front" | "back", deg: number) => {
+    const s = which === "front" ? front : back;
+    if (!s.bitmap || deg === 0) return;
+    const rotated = await rotateBitmap(s.bitmap, deg);
+    await updateSide(which, rotated, true);
+  };
+
   const applyCropSide = async (which: "front" | "back", rect: CropRect) => {
     const s = which === "front" ? front : back;
     if (!s.bitmap) return;
@@ -191,6 +198,7 @@ export function AadhaarSection() {
         onReset={() => resetSide(which)}
         onRotateLeft={() => rotateSide(which, -90)}
         onRotateRight={() => rotateSide(which, 90)}
+        onRotateFine={(d) => rotateFineSide(which, d)}
         onClear={() => clearSide(which)}
         disabled={busy}
       />
