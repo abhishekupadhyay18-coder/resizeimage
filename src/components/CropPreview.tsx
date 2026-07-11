@@ -40,16 +40,12 @@ const HANDLES: Array<{ key: string; cx: number; cy: number; cursor: string }> = 
   { key: "w", cx: 0, cy: 0.5, cursor: "ew-resize" },
 ];
 
-// Inset the initial crop so users immediately see a visible box.
+// Start with the full image so the four corner handles sit exactly on the
+// image corners — clearly visible and inviting a drag inward.
 function initialRect(w: number, h: number): CropRect {
-  const inset = 0.08;
-  return {
-    x: Math.round(w * inset),
-    y: Math.round(h * inset),
-    w: Math.round(w * (1 - inset * 2)),
-    h: Math.round(h * (1 - inset * 2)),
-  };
+  return { x: 0, y: 0, w, h };
 }
+
 
 export function CropPreview({
   url,

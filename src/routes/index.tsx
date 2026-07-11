@@ -15,27 +15,28 @@ function Index() {
             Document Image Compressor
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Compress passport photo, Ghosna Patra, and Aadhaar card to strict KB ranges — sharp
-            and clear, ready to upload. Drag the crop rectangle on any image to trim it live.
+            Compress images to strict KB ranges — sharp and clear, ready to upload.
+            Upload, drop, or capture with your camera; drag the crop rectangle to trim live.
           </p>
         </div>
       </header>
 
       <main className="mx-auto max-w-3xl space-y-5 px-4 py-6">
         <SectionCard
-          title="Passport Size Photograph"
-          description="Your passport photo, auto-compressed."
+          title="Image under 50 KB"
+          description="Compress any image to a strict 40–45 KB range."
           minKB={40}
           maxKB={45}
-          downloadName="passport.jpg"
+          downloadBase="image50"
           accent="bg-sky-500"
+          dpi
         />
         <SectionCard
-          title="Ghosna Patra"
-          description="Declaration document image."
+          title="Image under 100 KB"
+          description="Compress any image to a strict 90–95 KB range."
           minKB={90}
           maxKB={95}
-          downloadName="ghosna-patra.jpg"
+          downloadBase="image100"
           accent="bg-violet-500"
         />
         <AadhaarSection />
