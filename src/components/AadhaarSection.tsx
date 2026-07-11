@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Download, Loader2, Upload } from "lucide-react";
+import { Camera, Download, Loader2, Upload } from "lucide-react";
 import {
   compressToRange,
   cropBitmap,
+  encodePng,
   loadBitmap,
   mergeVertical,
   rotateBitmap,
@@ -10,9 +11,13 @@ import {
   type CropRect,
 } from "@/lib/compress-image";
 import { CropPreview } from "./CropPreview";
+import { CameraCapture } from "./CameraCapture";
 
 const MIN_KB = 90;
 const MAX_KB = 95;
+const DOWNLOAD_BASE = "merged";
+
+type Format = "jpg" | "jpeg" | "png";
 
 interface SideState {
   file: File | null;
@@ -37,9 +42,13 @@ export function AadhaarSection() {
   const [front, setFront] = useState<SideState>(initialSide);
   const [back, setBack] = useState<SideState>(initialSide);
   const [result, setResult] = useState<CompressResult | null>(null);
-  const [resultUrl, setResultUrl] = useState<string | null>(null);
+  const [mergedBitmap, setMergedBitmap] = useState<ImageBitmap | null>(null);
+  const [jpegUrl, setJpegUrl] = useState<string | null>(null);
+  const [pngUrl, setPngUrl] = useState<string | null>(null);
+  const [format, setFormat] = useState<Format>("jpg");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cameraFor, setCameraFor] = useState<"front" | "back" | null>(null);
   const frontInput = useRef<HTMLInputElement>(null);
   const backInput = useRef<HTMLInputElement>(null);
 
@@ -47,14 +56,18 @@ export function AadhaarSection() {
     return () => {
       if (front.previewUrl) URL.revokeObjectURL(front.previewUrl);
       if (back.previewUrl) URL.revokeObjectURL(back.previewUrl);
-      if (resultUrl) URL.revokeObjectURL(resultUrl);
+      if (jpegUrl) URL.revokeObjectURL(jpegUrl);
+      if (pngUrl) URL.revokeObjectURL(pngUrl);
     };
-  }, [front.previewUrl, back.previewUrl, resultUrl]);
+  }, [front.previewUrl, back.previewUrl, jpegUrl, pngUrl]);
 
   const invalidateResult = () => {
-    if (resultUrl) URL.revokeObjectURL(resultUrl);
+    if (jpegUrl) URL.revokeObjectURL(jpegUrl);
+    if (pngUrl) URL.revokeObjectURL(pngUrl);
     setResult(null);
-    setResultUrl(null);
+    setJpegUrl(null);
+    setPngUrl(null);
+    setMergedBitmap(null);
   };
 
   const setSide = async (which: "front" | "back", file: File) => {
@@ -139,9 +152,10 @@ export function AadhaarSection() {
     invalidateResult();
     try {
       const merged = await mergeVertical(front.bitmap, back.bitmap);
+      setMergedBitmap(merged);
       const r = await compressToRange(merged, MIN_KB * 1024, MAX_KB * 1024);
       setResult(r);
-      setResultUrl(URL.createObjectURL(r.blob));
+      setJpegUrl(URL.createObjectURL(r.blob));
       const inRange = r.blob.size > MIN_KB * 1024 && r.blob.size < MAX_KB * 1024;
       if (!inRange) {
         setError(
@@ -155,6 +169,23 @@ export function AadhaarSection() {
     }
   };
 
+  useEffect(() => {
+    if (format !== "png" || !mergedBitmap || pngUrl) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const blob = await encodePng(mergedBitmap);
+        if (cancelled) return;
+        setPngUrl(URL.createObjectURL(blob));
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [format, mergedBitmap, pngUrl]);
+
   const renderSlot = (
     which: "front" | "back",
     state: SideState,
@@ -163,58 +194,78 @@ export function AadhaarSection() {
     const label = which === "front" ? "Front" : "Back";
     if (!state.file || !state.bitmap || !state.previewUrl) {
       return (
-        <label
-          className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-muted/30 px-3 py-6 text-center hover:bg-muted"
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => {
-            e.preventDefault();
-            const f = e.dataTransfer.files?.[0];
-            if (f) setSide(which, f);
-          }}
-        >
-          <Upload className="h-5 w-5 text-muted-foreground" />
-          <div className="mt-1 text-sm font-medium">{label} of Aadhaar</div>
-          <div className="text-xs text-muted-foreground">Click or drop</div>
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/jpeg,image/jpg,image/png,image/webp"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
+        <div className="space-y-2">
+          <label
+            className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-muted/30 px-3 py-6 text-center hover:bg-muted"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              const f = e.dataTransfer.files?.[0];
               if (f) setSide(which, f);
             }}
-          />
-        </label>
+          >
+            <Upload className="h-5 w-5 text-muted-foreground" />
+            <div className="mt-1 text-sm font-medium">{label} of Aadhaar</div>
+            <div className="text-xs text-muted-foreground">Click or drop</div>
+            <input
+              ref={inputRef}
+              type="file"
+              accept="image/jpeg,image/jpg,image/png,image/webp"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) setSide(which, f);
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => setCameraFor(which)}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent"
+          >
+            <Camera className="h-3.5 w-3.5" /> Use camera
+          </button>
+        </div>
       );
     }
     return (
-      <CropPreview
-        url={state.previewUrl}
-        naturalWidth={state.bitmap.width}
-        naturalHeight={state.bitmap.height}
-        label={label}
-        onApplyCrop={(r) => applyCropSide(which, r)}
-        onReset={() => resetSide(which)}
-        onRotateLeft={() => rotateSide(which, -90)}
-        onRotateRight={() => rotateSide(which, 90)}
-        onRotateFine={(d) => rotateFineSide(which, d)}
-        onClear={() => clearSide(which)}
-        disabled={busy}
-      />
+      <div className="space-y-2">
+        <CropPreview
+          url={state.previewUrl}
+          naturalWidth={state.bitmap.width}
+          naturalHeight={state.bitmap.height}
+          label={label}
+          onApplyCrop={(r) => applyCropSide(which, r)}
+          onReset={() => resetSide(which)}
+          onRotateLeft={() => rotateSide(which, -90)}
+          onRotateRight={() => rotateSide(which, 90)}
+          onRotateFine={(d) => rotateFineSide(which, d)}
+          onClear={() => clearSide(which)}
+          disabled={busy}
+        />
+        <button
+          type="button"
+          onClick={() => setCameraFor(which)}
+          className="inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent"
+        >
+          <Camera className="h-3.5 w-3.5" /> Retake
+        </button>
+      </div>
     );
   };
 
   const inRange = result ? result.blob.size > MIN_KB * 1024 && result.blob.size < MAX_KB * 1024 : false;
+  const downloadHref = format === "png" ? pngUrl : jpegUrl;
+  const downloadFilename = `${DOWNLOAD_BASE}.${format}`;
 
   return (
     <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
       <div className="flex items-center gap-2">
         <span className="inline-block h-2.5 w-2.5 rounded-full bg-amber-500" />
-        <h2 className="text-lg font-semibold text-foreground">Aadhaar Card</h2>
+        <h2 className="text-lg font-semibold text-foreground">Merge and compress</h2>
       </div>
       <p className="mt-1 text-sm text-muted-foreground">
-        Upload front and back separately. They are merged vertically into one JPG, then compressed.
+        Upload front and back separately. They are merged vertically into one image, then compressed.
       </p>
       <p className="mt-0.5 text-xs text-muted-foreground">
         Target: strictly &gt; {MIN_KB} KB and &lt; {MAX_KB} KB
@@ -265,14 +316,52 @@ export function AadhaarSection() {
         </div>
       )}
 
-      {resultUrl && !busy && (
+      {result && (
+        <div className="mt-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-muted-foreground">Format:</span>
+            {(["jpg", "png", "jpeg"] as Format[]).map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFormat(f)}
+                className={`rounded-full px-3 py-1 text-xs font-medium border ${
+                  format === f
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-input bg-background hover:bg-accent"
+                }`}
+              >
+                {f.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          {format === "png" && (
+            <p className="text-[11px] text-muted-foreground">
+              PNG is lossless — file may exceed the KB target.
+            </p>
+          )}
+        </div>
+      )}
+
+      {downloadHref && !busy && (
         <a
-          href={resultUrl}
-          download="aadhaar.jpg"
+          href={downloadHref}
+          download={downloadFilename}
           className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent"
         >
-          <Download className="h-4 w-4" /> Download aadhaar.jpg
+          <Download className="h-4 w-4" /> Download {downloadFilename}
         </a>
+      )}
+
+      {cameraFor && (
+        <CameraCapture
+          onCapture={(f) => {
+            const which = cameraFor;
+            setCameraFor(null);
+            setSide(which, f);
+          }}
+          onClose={() => setCameraFor(null)}
+        />
       )}
     </div>
   );
