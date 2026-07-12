@@ -10,33 +10,84 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ToolsPdfRouteImport } from './routes/tools.pdf'
+import { Route as ToolsImageRouteImport } from './routes/tools.image'
+import { Route as ToolsConvertRouteImport } from './routes/tools.convert'
+import { Route as ToolsCompressRouteImport } from './routes/tools.compress'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ToolsPdfRoute = ToolsPdfRouteImport.update({
+  id: '/tools/pdf',
+  path: '/tools/pdf',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ToolsImageRoute = ToolsImageRouteImport.update({
+  id: '/tools/image',
+  path: '/tools/image',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ToolsConvertRoute = ToolsConvertRouteImport.update({
+  id: '/tools/convert',
+  path: '/tools/convert',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ToolsCompressRoute = ToolsCompressRouteImport.update({
+  id: '/tools/compress',
+  path: '/tools/compress',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/tools/compress': typeof ToolsCompressRoute
+  '/tools/convert': typeof ToolsConvertRoute
+  '/tools/image': typeof ToolsImageRoute
+  '/tools/pdf': typeof ToolsPdfRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/tools/compress': typeof ToolsCompressRoute
+  '/tools/convert': typeof ToolsConvertRoute
+  '/tools/image': typeof ToolsImageRoute
+  '/tools/pdf': typeof ToolsPdfRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/tools/compress': typeof ToolsCompressRoute
+  '/tools/convert': typeof ToolsConvertRoute
+  '/tools/image': typeof ToolsImageRoute
+  '/tools/pdf': typeof ToolsPdfRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/tools/compress'
+    | '/tools/convert'
+    | '/tools/image'
+    | '/tools/pdf'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/tools/compress' | '/tools/convert' | '/tools/image' | '/tools/pdf'
+  id:
+    | '__root__'
+    | '/'
+    | '/tools/compress'
+    | '/tools/convert'
+    | '/tools/image'
+    | '/tools/pdf'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ToolsCompressRoute: typeof ToolsCompressRoute
+  ToolsConvertRoute: typeof ToolsConvertRoute
+  ToolsImageRoute: typeof ToolsImageRoute
+  ToolsPdfRoute: typeof ToolsPdfRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,22 +99,44 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/tools/pdf': {
+      id: '/tools/pdf'
+      path: '/tools/pdf'
+      fullPath: '/tools/pdf'
+      preLoaderRoute: typeof ToolsPdfRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tools/image': {
+      id: '/tools/image'
+      path: '/tools/image'
+      fullPath: '/tools/image'
+      preLoaderRoute: typeof ToolsImageRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tools/convert': {
+      id: '/tools/convert'
+      path: '/tools/convert'
+      fullPath: '/tools/convert'
+      preLoaderRoute: typeof ToolsConvertRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tools/compress': {
+      id: '/tools/compress'
+      path: '/tools/compress'
+      fullPath: '/tools/compress'
+      preLoaderRoute: typeof ToolsCompressRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ToolsCompressRoute: ToolsCompressRoute,
+  ToolsConvertRoute: ToolsConvertRoute,
+  ToolsImageRoute: ToolsImageRoute,
+  ToolsPdfRoute: ToolsPdfRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
