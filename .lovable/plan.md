@@ -1,55 +1,96 @@
-## Changes
+## Home layout
 
-### 1. Rename section titles and download filenames
-In `src/routes/index.tsx`:
-- Passport Size Photograph → **"Image under 50 KB"**, base filename `image50`.
-- Ghosna Patra → **"Image under 100 KB"**, base filename `image100`.
-- Keep existing KB targets (40–45 KB and 90–95 KB).
+`src/routes/index.tsx` becomes a Tools Hub with **4 cards** in this order:
 
-In `src/components/AadhaarSection.tsx`:
-- Heading → **"Merge and compress"**, base filename `merged`.
+1. **Document Image Compressor** — the existing flow (Image under 50 KB, Image under 100 KB, Aadhaar merge & compress). Wrapped as-is into `/tools/compress`.
+2. **File Converter** — `/tools/convert`
+3. **PDF Tools** — `/tools/pdf`
+4. **Image Tools** — `/tools/image`
 
-`SectionCard`'s `downloadName` prop becomes `downloadBase` (base name without extension); the extension is chosen by the format selector below. `AadhaarSection` follows the same pattern.
+Each card is a `ToolCard` (icon + title + short blurb) that links to its route. Each sub-route shows a grid of service tiles; clicking a tile opens that service inline (single-page tabs) so we don't create a route per micro-tool.
 
-### 2. Download format selector (JPG / PNG / JPEG)
-- Add a small format selector above the Download button in both `SectionCard.tsx` and `AadhaarSection.tsx`. Three radio-style pill buttons: **JPG** (default), **PNG**, **JPEG**.
-- Behavior:
-  - **JPG** and **JPEG** — reuse the already-compressed JPEG blob (they're the same format; only the extension differs → `image50.jpg` vs `image50.jpeg`). File size stays in the target KB range.
-  - **PNG** — re-encode the current bitmap to PNG via `canvas.toBlob(..., "image/png")` in a new helper `encodePng(bitmap)` in `src/lib/compress-image.ts`. PNG is lossless so the file will typically be larger than the KB target; show a small helper note ("PNG is lossless — file may exceed the KB target.").
-- The download link's `download` attribute uses `${downloadBase}.${ext}` and `href` points at the currently selected format's blob URL. Blob URLs for each format are created on demand and revoked on unmount / new file.
+Shared UI: `ToolCard.tsx`, `ServiceTile.tsx`, `ToolShell.tsx` (back link + heading).
 
-### 3. Live camera capture (still photo)
-Create `src/components/CameraCapture.tsx` — a modal that:
-- Opens `navigator.mediaDevices.getUserMedia({ video: { facingMode }, audio: false })` and shows a live `<video>` viewfinder (not recording).
-- **Capture** draws the current video frame to a canvas once, converts to a JPEG `Blob` via `canvas.toBlob(..., "image/jpeg", 0.95)`, wraps in a `File`, calls `onCapture(file)`, and stops all tracks.
-- **Switch camera** toggles `facingMode` between `"environment"` and `"user"`.
-- **Cancel** / unmount stops all tracks.
-- Friendly error if permission denied or `mediaDevices` unavailable.
+## Service coverage (client-only)
 
-Wire into every upload slot in `SectionCard.tsx` and `AadhaarSection.tsx`:
-- Empty state: add **"Use camera"** button next to the drag/drop label.
-- Loaded state: small **"Retake"** button in the crop toolbar.
-- Captured `File` flows through the existing `handleFile` / `setSide` path.
+Anything requiring a server (LibreOffice / headless conversion / OCR / ghostscript-grade PDF compression) is **omitted per your instruction**. Omissions are called out below so you know why they're missing.
 
-### 4. Crop handles start at the image corners
-In `src/components/CropPreview.tsx`:
-- Change `initialRect()` to return the full image bounds (`x:0, y:0, w:naturalWidth, h:naturalHeight`) so the four corner handles sit exactly on the image corners on first render.
-- Keep the "Apply crop" button disabled until the user actually drags a handle (existing `cropChanged` guard).
-- Keep the rule-of-thirds grid, dashed border, and larger handles from the previous change.
+### File Converter (`/tools/convert`)
+Included:
+- JPG → PNG
+- PNG → JPG
+- WEBP → JPG (and WEBP → PNG for free)
+- PDF → Image (per-page PNG/JPG, zipped when multi-page) — via `pdfjs-dist`
+- Image → PDF — via `pdf-lib`
 
-### 5. DPI option for "Image under 50 KB"
-Add DPI as JPEG metadata (does not resample or change file size — only affects how print software sizes the image on paper; shown as helper text).
-- In `src/lib/compress-image.ts`: add `setJpegDpi(blob: Blob, dpi: number): Promise<Blob>` that rewrites the JFIF APP0 marker's `Xdensity` / `Ydensity` bytes (units=1, inches). Pure byte edit.
-- In `SectionCard.tsx`: add a `dpi?: boolean` prop. When true, show a DPI control above the Download button — numeric input (default 300, range 72–1200) with quick presets **72 / 150 / 300 / 600**. On change, re-tag the current compressed JPEG blob and refresh the download link.
-- DPI applies to JPG/JPEG downloads only; PNG uses its own `pHYs` chunk which is out of scope — a note will say "DPI applies to JPG/JPEG only."
-- In `src/routes/index.tsx`: pass `dpi` only to the "Image under 50 KB" section.
+Omitted (need server):
+- Word → PDF, Excel → PDF, PPT → PDF, PDF → Word, PDF → Excel
+
+Implementation: one unified converter component with a source-type picker; JPG/PNG/WEBP conversions use `<canvas>` + `toBlob`.
+
+### PDF Tools (`/tools/pdf`)
+All via `pdf-lib` (client-only):
+- Merge PDF
+- Split PDF (by page ranges)
+- Rotate PDF (per-page or all)
+- Delete Pages
+- Extract Pages
+- Reorder Pages (drag-to-reorder thumbnails; thumbnails rendered with `pdfjs-dist`)
+
+Omitted:
+- **Compress PDF** — quality-preserving PDF compression needs ghostscript / server tooling. Removed per your rule.
+
+### Image Tools (`/tools/image`)
+All canvas-based, client-only:
+- Resize (px or %)
+- Crop (reuses `CropPreview`)
+- Rotate (free-angle + 90° steps)
+- Flip (horizontal / vertical)
+- Compress (JPEG quality slider, optional target-KB reuse of `compressToRange`)
+- Convert (format switcher: JPG / PNG / WEBP)
+- Add Text (overlay with font/size/color/position)
+- Blur (canvas `filter: blur()`)
+- Sharpen (3×3 convolution)
+- Brightness / Contrast (canvas filter)
+- Color Adjustments (hue-rotate, saturation)
+- Denoise (simple 3×3 median filter — basic client-side)
+
+## Rotate + Crop rework (carried from previous plan)
+`CropPreview.tsx` becomes a single editor: fine-rotate slider + 90° buttons + draggable crop rect all previewed together, one **Apply** button commits `rotate → crop` to the parent via `onApplyEdit({ rotationDeg, cropRect })`. `SectionCard.tsx` and `AadhaarSection.tsx` swap per-op handlers for this unified callback.
+
+## DPI
+Default DPI is **300** on first render (already the case) and stays 300 until the user changes it. Existing behavior kept.
 
 ## Files
-- new `src/components/CameraCapture.tsx` — live viewfinder + still-photo capture, returns a JPEG `File`.
-- edit `src/components/CropPreview.tsx` — initial crop rect = full image so corner handles sit on the corners.
-- edit `src/components/SectionCard.tsx` — camera button, retake, format selector, DPI control (when `dpi` prop set), `downloadBase` prop.
-- edit `src/components/AadhaarSection.tsx` — camera button per side, renamed heading, format selector, `merged` base filename.
-- edit `src/lib/compress-image.ts` — `setJpegDpi` and `encodePng` helpers.
-- edit `src/routes/index.tsx` — new titles, `downloadBase` values (`image50`, `image100`), `dpi` prop on first section.
 
-No new dependencies.
+New:
+- `src/routes/tools.compress.tsx` — hosts existing Document Image Compressor UI
+- `src/routes/tools.convert.tsx`
+- `src/routes/tools.pdf.tsx`
+- `src/routes/tools.image.tsx`
+- `src/components/ToolCard.tsx`
+- `src/components/ServiceTile.tsx`
+- `src/components/ToolShell.tsx`
+- `src/components/converters/*` (ImageFormatConverter, PdfToImages, ImagesToPdf)
+- `src/components/pdf/*` (MergePdf, SplitPdf, RotatePdf, DeletePages, ExtractPages, ReorderPages)
+- `src/components/image/*` (Resize, Crop, Rotate, Flip, Compress, Convert, AddText, Blur, Sharpen, BrightnessContrast, ColorAdjust, Denoise)
+- `src/lib/pdf-utils.ts` (pdf-lib helpers)
+- `src/lib/image-filters.ts` (convolution, median, brightness helpers)
+
+Edit:
+- `src/routes/index.tsx` — becomes 4-card hub
+- `src/components/CropPreview.tsx` — unified rotate+crop editor
+- `src/components/SectionCard.tsx` — `onApplyEdit` unified callback
+- `src/components/AadhaarSection.tsx` — same
+
+New deps: `pdf-lib`, `pdfjs-dist`.
+
+## Layout sketch
+
+```text
+/                 → 4 ToolCards
+/tools/compress   → existing compressor (unchanged behavior)
+/tools/convert    → tile grid → inline converter panels
+/tools/pdf        → tile grid → inline PDF tool panels
+/tools/image      → tile grid → inline image tool panels
+```
