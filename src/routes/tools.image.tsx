@@ -63,7 +63,7 @@ type Tool =
   | "color"
   | "denoise";
 
-const TOOLS: { key: Tool; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+const TOOLS: { key: Tool; label: string; icon: typeof Crop }[] = [
   { key: "resize", label: "Resize", icon: Maximize2 },
   { key: "crop", label: "Crop", icon: Crop },
   { key: "rotate", label: "Rotate", icon: RotateCw },
