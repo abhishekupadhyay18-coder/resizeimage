@@ -1,20 +1,20 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import {
-  Crop,
+  Camera,
+  Crop as CropIcon,
   Droplet,
-  FlipHorizontal,
+  Image as ImageI,
   Loader2,
-  Maximize2,
   Palette,
-  RotateCw,
+  ScanLine,
   SlidersHorizontal,
   Sparkles,
   Sun,
   Type,
   Upload,
   Wand2,
-  ImageIcon as ImageI,
+  Wand,
 } from "lucide-react";
 import { ToolShell } from "@/components/ToolShell";
 import { ServiceTile } from "@/components/ServiceTile";
@@ -29,20 +29,21 @@ import {
 } from "@/lib/image-filters";
 import { rotateBitmap, cropBitmap, compressToRange, loadBitmap } from "@/lib/compress-image";
 import { CropPreview } from "@/components/CropPreview";
+import { CameraCapture } from "@/components/CameraCapture";
 import { downloadBlob } from "@/lib/pdf-utils";
 
 export const Route = createFileRoute("/tools/image")({
   head: () => ({
     meta: [
-      { title: "Image Tools — Tools Hub" },
+      { title: "Image Tools — Transform, Edit & Enhance" },
       {
         name: "description",
-        content: "Resize, crop, rotate, flip, filter and adjust images in your browser.",
+        content: "Resize, crop, rotate, flip, filter and adjust images entirely in your browser.",
       },
       { property: "og:title", content: "Image Tools" },
       {
         property: "og:description",
-        content: "Client-side image editor: resize, crop, rotate, flip, adjust, and more.",
+        content: "Client-side image editor: transform, filter, adjust and enhance.",
       },
     ],
   }),
@@ -50,10 +51,8 @@ export const Route = createFileRoute("/tools/image")({
 });
 
 type Tool =
-  | "resize"
-  | "crop"
-  | "rotate"
-  | "flip"
+  | "transform"
+  | "cropedit"
   | "compress"
   | "convert"
   | "text"
@@ -63,11 +62,9 @@ type Tool =
   | "color"
   | "denoise";
 
-const TOOLS: { key: Tool; label: string; icon: typeof Crop }[] = [
-  { key: "resize", label: "Resize", icon: Maximize2 },
-  { key: "crop", label: "Crop", icon: Crop },
-  { key: "rotate", label: "Rotate", icon: RotateCw },
-  { key: "flip", label: "Flip", icon: FlipHorizontal },
+const TOOLS: { key: Tool; label: string; icon: typeof CropIcon }[] = [
+  { key: "cropedit", label: "Crop, Edit & Rotate", icon: ScanLine },
+  { key: "transform", label: "Transform", icon: Wand },
   { key: "compress", label: "Compress", icon: Sparkles },
   { key: "convert", label: "Convert", icon: ImageI },
   { key: "text", label: "Add text", icon: Type },
@@ -79,10 +76,11 @@ const TOOLS: { key: Tool; label: string; icon: typeof Crop }[] = [
 ];
 
 function Page() {
-  const [tool, setTool] = useState<Tool>("resize");
+  const [tool, setTool] = useState<Tool>("cropedit");
   const [file, setFile] = useState<File | null>(null);
   const [bitmap, setBitmap] = useState<ImageBitmap | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
@@ -108,26 +106,58 @@ function Page() {
     setPreviewUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return url; });
   };
 
+  const reset = () => {
+    setFile(null);
+    setBitmap(null);
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(null);
+  };
+
   return (
     <ToolShell title="Image Tools" description="Client-side image editor.">
-      <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
         {TOOLS.map((t) => (
-          <ServiceTile key={t.key} active={tool === t.key} onClick={() => setTool(t.key)} title={t.label} icon={t.icon} />
+          <ServiceTile
+            key={t.key}
+            active={tool === t.key}
+            onClick={() => setTool(t.key)}
+            title={t.label}
+            icon={t.icon}
+          />
         ))}
       </div>
 
       {!file ? (
-        <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-muted/30 px-4 py-10 text-center hover:bg-muted">
-          <Upload className="h-6 w-6 text-muted-foreground" />
-          <div className="mt-2 text-sm font-medium">Drop or click to pick an image</div>
-          <div className="text-xs text-muted-foreground">JPG, PNG, WEBP</div>
-          <input
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            className="hidden"
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) load(f); }}
-          />
-        </label>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label
+            className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-muted/30 px-4 py-10 text-center hover:bg-muted"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              const f = e.dataTransfer.files?.[0];
+              if (f) load(f);
+            }}
+          >
+            <Upload className="h-6 w-6 text-muted-foreground" />
+            <div className="mt-2 text-sm font-medium">Drop or click to pick an image</div>
+            <div className="text-xs text-muted-foreground">JPG, PNG, WEBP and more</div>
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) load(f); }}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => setCameraOpen(true)}
+            className="flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-primary/40 bg-primary/5 px-4 py-10 text-primary hover:bg-primary/10"
+          >
+            <Camera className="h-6 w-6" />
+            <span className="text-sm font-semibold">Capture from camera</span>
+            <span className="text-[11px] text-muted-foreground">Live preview, rear camera</span>
+          </button>
+        </div>
       ) : (
         <div className="space-y-4">
           {previewUrl && (
@@ -143,16 +173,16 @@ function Page() {
 
           {bitmap && (
             <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
-              {tool === "resize" && <ResizePanel bitmap={bitmap} onResult={setResult} />}
-              {tool === "crop" && previewUrl && (
-                <CropPanel bitmap={bitmap} previewUrl={previewUrl} onResult={setResult} />
+              {tool === "cropedit" && previewUrl && (
+                <CropEditPanel bitmap={bitmap} previewUrl={previewUrl} onResult={setResult} />
               )}
-              {tool === "rotate" && <RotatePanel bitmap={bitmap} onResult={setResult} />}
-              {tool === "flip" && <FlipPanel bitmap={bitmap} onResult={setResult} />}
+              {tool === "transform" && previewUrl && (
+                <TransformPanel bitmap={bitmap} previewUrl={previewUrl} onResult={setResult} />
+              )}
               {tool === "compress" && <CompressPanel bitmap={bitmap} />}
               {tool === "convert" && <ConvertPanel bitmap={bitmap} originalName={file.name} />}
               {tool === "text" && <TextPanel bitmap={bitmap} onResult={setResult} />}
-              {tool === "blur" && <FilterPanel bitmap={bitmap} onResult={setResult} kind="blur" />}
+              {tool === "blur" && <FilterPanel bitmap={bitmap} onResult={setResult} />}
               {tool === "sharpen" && <SharpenPanel bitmap={bitmap} onResult={setResult} />}
               {tool === "bright" && <BrightPanel bitmap={bitmap} onResult={setResult} />}
               {tool === "color" && <ColorPanel bitmap={bitmap} onResult={setResult} />}
@@ -160,18 +190,25 @@ function Page() {
             </div>
           )}
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => { setFile(null); setBitmap(null); if (previewUrl) URL.revokeObjectURL(previewUrl); setPreviewUrl(null); }}
+              onClick={reset}
               className="rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent"
             >
               Choose another image
             </button>
+            <button
+              type="button"
+              onClick={() => setCameraOpen(true)}
+              className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent"
+            >
+              <Camera className="h-3.5 w-3.5" /> Recapture
+            </button>
             <a
               href={previewUrl ?? "#"}
               download="edited.png"
-              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+              className="ml-auto rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
             >
               Download current
             </a>
@@ -179,6 +216,16 @@ function Page() {
 
           {error && <div className="text-xs text-destructive">{error}</div>}
         </div>
+      )}
+
+      {cameraOpen && (
+        <CameraCapture
+          onCapture={(f) => {
+            setCameraOpen(false);
+            load(f);
+          }}
+          onClose={() => setCameraOpen(false)}
+        />
       )}
     </ToolShell>
   );
@@ -212,69 +259,119 @@ function Btn({
   );
 }
 
-function ResizePanel({ bitmap, onResult }: { bitmap: ImageBitmap; onResult: (c: HTMLCanvasElement) => void }) {
-  const [w, setW] = useState(bitmap.width);
-  const [h, setH] = useState(bitmap.height);
-  const [lock, setLock] = useState(true);
-  const ratio = bitmap.width / bitmap.height;
+// Merged crop / rotate / flip editor (same UX as Document Image Compressor).
+function CropEditPanel({
+  bitmap,
+  previewUrl,
+  onResult,
+}: {
+  bitmap: ImageBitmap;
+  previewUrl: string;
+  onResult: (c: HTMLCanvasElement) => void;
+}) {
   return (
     <div className="space-y-3">
-      <h3 className="text-sm font-semibold">Resize</h3>
-      <Row>
-        <label className="text-xs">W <input type="number" value={w} onChange={(e) => { const v = +e.target.value; setW(v); if (lock) setH(Math.round(v / ratio)); }} className="ml-1 w-24 rounded border border-input bg-background px-2 py-1 text-xs" /></label>
-        <label className="text-xs">H <input type="number" value={h} onChange={(e) => { const v = +e.target.value; setH(v); if (lock) setW(Math.round(v * ratio)); }} className="ml-1 w-24 rounded border border-input bg-background px-2 py-1 text-xs" /></label>
-        <label className="text-xs flex items-center gap-1"><input type="checkbox" checked={lock} onChange={(e) => setLock(e.target.checked)} /> lock ratio</label>
-      </Row>
-      <Btn onClick={async () => onResult(await resizeCanvas(bitmap, w, h))}>Apply resize</Btn>
-    </div>
-  );
-}
-
-function CropPanel({ bitmap, previewUrl, onResult }: { bitmap: ImageBitmap; previewUrl: string; onResult: (c: HTMLCanvasElement) => void }) {
-  return (
-    <div className="space-y-3">
-      <h3 className="text-sm font-semibold">Crop &amp; rotate</h3>
+      <h3 className="text-sm font-semibold">Crop, Edit &amp; Rotate</h3>
       <CropPreview
         url={previewUrl}
         naturalWidth={bitmap.width}
         naturalHeight={bitmap.height}
         onApplyCrop={async (r) => onResult(bitmapToCanvas(await cropBitmap(bitmap, r)))}
-        onReset={() => { /* no-op — parent handles state */ }}
+        onReset={() => undefined}
         onRotateLeft={async () => onResult(bitmapToCanvas(await rotateBitmap(bitmap, -90)))}
         onRotateRight={async () => onResult(bitmapToCanvas(await rotateBitmap(bitmap, 90)))}
         onRotateFine={async (d) => onResult(bitmapToCanvas(await rotateBitmap(bitmap, d)))}
       />
-    </div>
-  );
-}
-
-function RotatePanel({ bitmap, onResult }: { bitmap: ImageBitmap; onResult: (c: HTMLCanvasElement) => void }) {
-  const [deg, setDeg] = useState(0);
-  return (
-    <div className="space-y-3">
-      <h3 className="text-sm font-semibold">Rotate</h3>
-      <Row>
-        {[90, 180, 270].map((d) => (
-          <button key={d} type="button" onClick={async () => onResult(bitmapToCanvas(await rotateBitmap(bitmap, d)))} className="rounded border border-input bg-background px-2 py-1 text-xs hover:bg-accent">{d}°</button>
-        ))}
-      </Row>
-      <div>
-        <label className="text-xs text-muted-foreground">Free angle: {deg}°</label>
-        <input type="range" min={-180} max={180} value={deg} onChange={(e) => setDeg(+e.target.value)} className="w-full accent-primary" />
-      </div>
-      <Btn onClick={async () => onResult(bitmapToCanvas(await rotateBitmap(bitmap, deg)))}>Apply rotation</Btn>
-    </div>
-  );
-}
-
-function FlipPanel({ bitmap, onResult }: { bitmap: ImageBitmap; onResult: (c: HTMLCanvasElement) => void }) {
-  return (
-    <div className="space-y-3">
-      <h3 className="text-sm font-semibold">Flip</h3>
       <Row>
         <Btn onClick={async () => onResult(await flipCanvas(bitmap, "h"))}>Flip horizontal</Btn>
         <Btn onClick={async () => onResult(await flipCanvas(bitmap, "v"))}>Flip vertical</Btn>
       </Row>
+    </div>
+  );
+}
+
+// Combined Resize + Crop + Rotate + Flip in a single tool.
+function TransformPanel({
+  bitmap,
+  previewUrl,
+  onResult,
+}: {
+  bitmap: ImageBitmap;
+  previewUrl: string;
+  onResult: (c: HTMLCanvasElement) => void;
+}) {
+  const [w, setW] = useState(bitmap.width);
+  const [h, setH] = useState(bitmap.height);
+  const [lock, setLock] = useState(true);
+  const ratio = bitmap.width / bitmap.height;
+
+  useEffect(() => {
+    setW(bitmap.width);
+    setH(bitmap.height);
+  }, [bitmap]);
+
+  return (
+    <div className="space-y-4">
+      <h3 className="text-sm font-semibold">Transform</h3>
+
+      <div className="space-y-2 rounded-md border border-border bg-muted/30 p-3">
+        <div className="text-xs font-semibold text-muted-foreground">Resize</div>
+        <Row>
+          <label className="text-xs">
+            W{" "}
+            <input
+              type="number"
+              value={w}
+              onChange={(e) => {
+                const v = +e.target.value;
+                setW(v);
+                if (lock) setH(Math.round(v / ratio));
+              }}
+              className="ml-1 w-24 rounded border border-input bg-background px-2 py-1 text-xs"
+            />
+          </label>
+          <label className="text-xs">
+            H{" "}
+            <input
+              type="number"
+              value={h}
+              onChange={(e) => {
+                const v = +e.target.value;
+                setH(v);
+                if (lock) setW(Math.round(v * ratio));
+              }}
+              className="ml-1 w-24 rounded border border-input bg-background px-2 py-1 text-xs"
+            />
+          </label>
+          <label className="flex items-center gap-1 text-xs">
+            <input type="checkbox" checked={lock} onChange={(e) => setLock(e.target.checked)} />
+            lock ratio
+          </label>
+          <Btn onClick={async () => onResult(await resizeCanvas(bitmap, w, h))}>Apply resize</Btn>
+        </Row>
+      </div>
+
+      <div className="space-y-2 rounded-md border border-border bg-muted/30 p-3">
+        <div className="text-xs font-semibold text-muted-foreground">Crop &amp; rotate</div>
+        <CropPreview
+          url={previewUrl}
+          naturalWidth={bitmap.width}
+          naturalHeight={bitmap.height}
+          onApplyCrop={async (r) => onResult(bitmapToCanvas(await cropBitmap(bitmap, r)))}
+          onReset={() => undefined}
+          onRotateLeft={async () => onResult(bitmapToCanvas(await rotateBitmap(bitmap, -90)))}
+          onRotateRight={async () => onResult(bitmapToCanvas(await rotateBitmap(bitmap, 90)))}
+          onRotateFine={async (d) => onResult(bitmapToCanvas(await rotateBitmap(bitmap, d)))}
+        />
+      </div>
+
+      <div className="space-y-2 rounded-md border border-border bg-muted/30 p-3">
+        <div className="text-xs font-semibold text-muted-foreground">Flip</div>
+        <Row>
+          <Btn onClick={async () => onResult(await flipCanvas(bitmap, "h"))}>Flip horizontal</Btn>
+          <Btn onClick={async () => onResult(await flipCanvas(bitmap, "v"))}>Flip vertical</Btn>
+        </Row>
+      </div>
     </div>
   );
 }
@@ -324,13 +421,13 @@ function CompressPanel({ bitmap }: { bitmap: ImageBitmap }) {
 }
 
 function ConvertPanel({ bitmap, originalName }: { bitmap: ImageBitmap; originalName: string }) {
-  const [t, setT] = useState<"png" | "jpeg" | "webp">("png");
+  const [t, setT] = useState<"jpeg" | "png" | "webp">("jpeg");
   return (
     <div className="space-y-3">
       <h3 className="text-sm font-semibold">Convert format</h3>
       <Row>
-        {(["png", "jpeg", "webp"] as const).map((k) => (
-          <button key={k} type="button" onClick={() => setT(k)} className={`rounded-full px-3 py-1 text-xs font-medium border ${t === k ? "border-primary bg-primary text-primary-foreground" : "border-input bg-background hover:bg-accent"}`}>{k === "jpeg" ? "JPG" : k.toUpperCase()}</button>
+        {(["jpeg", "png", "webp"] as const).map((k) => (
+          <button key={k} type="button" onClick={() => setT(k)} className={`rounded-full px-3 py-1 text-xs font-medium border ${t === k ? "border-primary bg-primary text-primary-foreground" : "border-input bg-background hover:bg-accent"}`}>{k === "jpeg" ? "JPEG" : k.toUpperCase()}</button>
         ))}
       </Row>
       <Btn onClick={async () => {
@@ -383,7 +480,7 @@ function TextPanel({ bitmap, onResult }: { bitmap: ImageBitmap; onResult: (c: HT
   );
 }
 
-function FilterPanel({ bitmap, onResult, kind }: { bitmap: ImageBitmap; onResult: (c: HTMLCanvasElement) => void; kind: "blur" }) {
+function FilterPanel({ bitmap, onResult }: { bitmap: ImageBitmap; onResult: (c: HTMLCanvasElement) => void }) {
   const [amt, setAmt] = useState(4);
   return (
     <div className="space-y-3">
