@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ToolsPdfMakerRouteImport } from './routes/tools.pdf-maker'
 import { Route as ToolsPdfRouteImport } from './routes/tools.pdf'
 import { Route as ToolsImageRouteImport } from './routes/tools.image'
 import { Route as ToolsConvertRouteImport } from './routes/tools.convert'
@@ -18,6 +19,11 @@ import { Route as ToolsCompressRouteImport } from './routes/tools.compress'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ToolsPdfMakerRoute = ToolsPdfMakerRouteImport.update({
+  id: '/tools/pdf-maker',
+  path: '/tools/pdf-maker',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ToolsPdfRoute = ToolsPdfRouteImport.update({
@@ -47,6 +53,7 @@ export interface FileRoutesByFullPath {
   '/tools/convert': typeof ToolsConvertRoute
   '/tools/image': typeof ToolsImageRoute
   '/tools/pdf': typeof ToolsPdfRoute
+  '/tools/pdf-maker': typeof ToolsPdfMakerRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -54,6 +61,7 @@ export interface FileRoutesByTo {
   '/tools/convert': typeof ToolsConvertRoute
   '/tools/image': typeof ToolsImageRoute
   '/tools/pdf': typeof ToolsPdfRoute
+  '/tools/pdf-maker': typeof ToolsPdfMakerRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -62,6 +70,7 @@ export interface FileRoutesById {
   '/tools/convert': typeof ToolsConvertRoute
   '/tools/image': typeof ToolsImageRoute
   '/tools/pdf': typeof ToolsPdfRoute
+  '/tools/pdf-maker': typeof ToolsPdfMakerRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -71,8 +80,15 @@ export interface FileRouteTypes {
     | '/tools/convert'
     | '/tools/image'
     | '/tools/pdf'
+    | '/tools/pdf-maker'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/tools/compress' | '/tools/convert' | '/tools/image' | '/tools/pdf'
+  to:
+    | '/'
+    | '/tools/compress'
+    | '/tools/convert'
+    | '/tools/image'
+    | '/tools/pdf'
+    | '/tools/pdf-maker'
   id:
     | '__root__'
     | '/'
@@ -80,6 +96,7 @@ export interface FileRouteTypes {
     | '/tools/convert'
     | '/tools/image'
     | '/tools/pdf'
+    | '/tools/pdf-maker'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -88,6 +105,7 @@ export interface RootRouteChildren {
   ToolsConvertRoute: typeof ToolsConvertRoute
   ToolsImageRoute: typeof ToolsImageRoute
   ToolsPdfRoute: typeof ToolsPdfRoute
+  ToolsPdfMakerRoute: typeof ToolsPdfMakerRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -97,6 +115,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tools/pdf-maker': {
+      id: '/tools/pdf-maker'
+      path: '/tools/pdf-maker'
+      fullPath: '/tools/pdf-maker'
+      preLoaderRoute: typeof ToolsPdfMakerRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/tools/pdf': {
@@ -136,6 +161,7 @@ const rootRouteChildren: RootRouteChildren = {
   ToolsConvertRoute: ToolsConvertRoute,
   ToolsImageRoute: ToolsImageRoute,
   ToolsPdfRoute: ToolsPdfRoute,
+  ToolsPdfMakerRoute: ToolsPdfMakerRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
