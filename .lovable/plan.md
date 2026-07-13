@@ -1,96 +1,99 @@
-## Home layout
+## Home hub
 
-`src/routes/index.tsx` becomes a Tools Hub with **4 cards** in this order:
+`src/routes/index.tsx` — swap `ToolCard` layout from horizontal rectangles to a **square tile grid** (2 cols mobile, 3 cols ≥sm). Each tile: large icon centered top, title, one-line blurb, fixed `aspect-square`. Reorder:
 
-1. **Document Image Compressor** — the existing flow (Image under 50 KB, Image under 100 KB, Aadhaar merge & compress). Wrapped as-is into `/tools/compress`.
-2. **File Converter** — `/tools/convert`
-3. **PDF Tools** — `/tools/pdf`
-4. **Image Tools** — `/tools/image`
+1. Document Image Compressor → `/tools/compress`
+2. Image Tools → `/tools/image`
+3. PDF Tools → `/tools/pdf`
+4. File Converter → `/tools/convert`
+5. **PDF Maker (new)** → `/tools/pdf-maker`
 
-Each card is a `ToolCard` (icon + title + short blurb) that links to its route. Each sub-route shows a grid of service tiles; clicking a tile opens that service inline (single-page tabs) so we don't create a route per micro-tool.
+`ToolCard.tsx` rewritten to square variant (keep same props).
 
-Shared UI: `ToolCard.tsx`, `ServiceTile.tsx`, `ToolShell.tsx` (back link + heading).
+## New: PDF Maker (`/tools/pdf-maker`)
 
-## Service coverage (client-only)
+Client-only doc-scanner-style flow. All processing on device (canvas + `pdf-lib`).
 
-Anything requiring a server (LibreOffice / headless conversion / OCR / ghostscript-grade PDF compression) is **omitted per your instruction**. Omissions are called out below so you know why they're missing.
+Flow:
+- Capture panel: live camera (`getUserMedia`, rear camera preferred) with a big **Capture** button + **Add from file** fallback (multi-select).
+- Captured shots appear in an ordered **thumbnail strip** (drag-to-reorder, delete, retake). Serial order = PDF page order.
+- Per-shot editor (opens on tap): crop rectangle (reuses `CropPreview` logic), 90° rotate, and **Enhance mode** selector:
+  - Auto Enhance (default): grayscale-world white balance + auto contrast stretch + mild unsharp mask
+  - Magic Color: saturation boost + white-balance + contrast stretch
+  - Black & White: adaptive threshold (Sauvola-style on downscaled luminance) for crisp scan look
+  - Grayscale: luminance only
+  - Original: no filter
+- Global controls: page size (A4 / Letter / Fit-to-image), margin toggle, filename.
+- **Generate PDF** → `pdf-lib` embeds each processed JPEG in order → download.
 
-### File Converter (`/tools/convert`)
-Included:
-- JPG → PNG
-- PNG → JPG
-- WEBP → JPG (and WEBP → PNG for free)
-- PDF → Image (per-page PNG/JPG, zipped when multi-page) — via `pdfjs-dist`
-- Image → PDF — via `pdf-lib`
+New files:
+- `src/routes/tools.pdf-maker.tsx`
+- `src/components/pdfmaker/CameraCapture.tsx` (reuse existing `CameraCapture.tsx` if compatible; wrap otherwise)
+- `src/components/pdfmaker/PageStrip.tsx` (thumbnails + reorder + delete)
+- `src/components/pdfmaker/PageEditor.tsx` (crop + rotate + enhance preview)
+- `src/lib/image-enhance.ts` (auto-contrast, white balance, adaptive threshold, unsharp)
 
-Omitted (need server):
-- Word → PDF, Excel → PDF, PPT → PDF, PDF → Word, PDF → Excel
+Route registered in `src/routeTree.gen.ts`.
 
-Implementation: one unified converter component with a source-type picker; JPG/PNG/WEBP conversions use `<canvas>` + `toBlob`.
+## PDF Tools redesign (`/tools/pdf`)
 
-### PDF Tools (`/tools/pdf`)
-All via `pdf-lib` (client-only):
-- Merge PDF
-- Split PDF (by page ranges)
-- Rotate PDF (per-page or all)
-- Delete Pages
-- Extract Pages
-- Reorder Pages (drag-to-reorder thumbnails; thumbnails rendered with `pdfjs-dist`)
+Two-state layout:
 
-Omitted:
-- **Compress PDF** — quality-preserving PDF compression needs ghostscript / server tooling. Removed per your rule.
-
-### Image Tools (`/tools/image`)
-All canvas-based, client-only:
-- Resize (px or %)
-- Crop (reuses `CropPreview`)
-- Rotate (free-angle + 90° steps)
-- Flip (horizontal / vertical)
-- Compress (JPEG quality slider, optional target-KB reuse of `compressToRange`)
-- Convert (format switcher: JPG / PNG / WEBP)
-- Add Text (overlay with font/size/color/position)
-- Blur (canvas `filter: blur()`)
-- Sharpen (3×3 convolution)
-- Brightness / Contrast (canvas filter)
-- Color Adjustments (hue-rotate, saturation)
-- Denoise (simple 3×3 median filter — basic client-side)
-
-## Rotate + Crop rework (carried from previous plan)
-`CropPreview.tsx` becomes a single editor: fine-rotate slider + 90° buttons + draggable crop rect all previewed together, one **Apply** button commits `rotate → crop` to the parent via `onApplyEdit({ rotationDeg, cropRect })`. `SectionCard.tsx` and `AadhaarSection.tsx` swap per-op handlers for this unified callback.
-
-## DPI
-Default DPI is **300** on first render (already the case) and stays 300 until the user changes it. Existing behavior kept.
-
-## Files
-
-New:
-- `src/routes/tools.compress.tsx` — hosts existing Document Image Compressor UI
-- `src/routes/tools.convert.tsx`
-- `src/routes/tools.pdf.tsx`
-- `src/routes/tools.image.tsx`
-- `src/components/ToolCard.tsx`
-- `src/components/ServiceTile.tsx`
-- `src/components/ToolShell.tsx`
-- `src/components/converters/*` (ImageFormatConverter, PdfToImages, ImagesToPdf)
-- `src/components/pdf/*` (MergePdf, SplitPdf, RotatePdf, DeletePages, ExtractPages, ReorderPages)
-- `src/components/image/*` (Resize, Crop, Rotate, Flip, Compress, Convert, AddText, Blur, Sharpen, BrightnessContrast, ColorAdjust, Denoise)
-- `src/lib/pdf-utils.ts` (pdf-lib helpers)
-- `src/lib/image-filters.ts` (convolution, median, brightness helpers)
-
-Edit:
-- `src/routes/index.tsx` — becomes 4-card hub
-- `src/components/CropPreview.tsx` — unified rotate+crop editor
-- `src/components/SectionCard.tsx` — `onApplyEdit` unified callback
-- `src/components/AadhaarSection.tsx` — same
-
-New deps: `pdf-lib`, `pdfjs-dist`.
-
-## Layout sketch
-
+**State A — no file:**
 ```text
-/                 → 4 ToolCards
-/tools/compress   → existing compressor (unchanged behavior)
-/tools/convert    → tile grid → inline converter panels
-/tools/pdf        → tile grid → inline PDF tool panels
-/tools/image      → tile grid → inline image tool panels
+┌───────────────────────────┬─────────────────┐
+│  Big drop zone            │  ┌──┐┌──┐┌──┐  │
+│  (drag/drop + click)      │  │Mg││Or││Sp│  │
+│  left, ~2/3 width         │  └──┘└──┘└──┘  │
+│                           │  Merge / Organize / Split │
+│                           │  Extract / Delete / Add   │
+│                           │  Flip / Rotate            │
+└───────────────────────────┴─────────────────┘
 ```
+Right column: small square icon-only tiles (title under icon) for **Merge, Organize Pages, Split, Extract Pages, Delete Pages, Add Pages, Flip, Rotate**. Clicking a tile with no file focuses the drop zone.
+
+**State B — file loaded:**
+- Left: page grid rendered with `pdfjs-dist` (all pages visible, selectable, drag-to-reorder for Organize).
+- Right: same tile column, now active; selecting a tile reveals its inline action bar above the page grid (e.g., Rotate → 90/180/270 buttons acting on selected pages; Delete → deletes selected; Split → range input; Add Pages → file picker to append; Merge → picker for additional PDFs to append; Extract → export selected).
+
+Files:
+- `src/routes/tools.pdf.tsx` — rewritten around this two-state layout
+- `src/components/pdf/PdfWorkspace.tsx` (left grid + selection state)
+- `src/components/pdf/PdfToolRail.tsx` (right icon tiles)
+- `src/components/pdf/actions/*` (one small component per action bar)
+- `src/lib/pdf-utils.ts` — add `renderPdfThumbnails(file, scale)` helper and `addPagesToPdf`, `flipPdf` helpers.
+
+## File Converter (`/tools/convert`)
+
+- **Image → Image:** accept `image/*` (JPG, PNG, WEBP, GIF, BMP, TIFF-where-browser-supports, AVIF, HEIC-via-browser-decode when available); output selector includes **JPEG**, PNG, WEBP. Fall back to canvas decode; show clear message if a source type can't be decoded in-browser.
+- **Image → PDF:** accept any `image/*` (same broad set).
+- **PDF → Image:** output selector adds **JPEG** alongside PNG (already partly there via `pdf-utils.pdfToImages` — expose the `format` control in the UI).
+
+Files touched:
+- `src/components/converters/ImageFormatConverter.tsx` — widen `accept`, add JPEG output.
+- `src/components/converters/ImagesToPdf.tsx` — widen `accept`.
+- `src/components/converters/PdfToImages.tsx` — add JPEG/PNG toggle.
+
+## Image Tools (`/tools/image`)
+
+- **Merge Resize + Crop + Rotate + Degree Rotation + Flip** into one tile: **"Transform"** (single editor with tabs or stacked controls; single Apply commits resize → rotate → flip → crop).
+- Add a new tile **"Crop, Edit & Rotate"** modeled on the Document Image Compressor flow:
+  - Upload area (drag/drop) **+ live camera capture** button.
+  - Once an image is loaded, the same-page editor shows: crop rect, fine-degree rotate slider, 90° buttons, flip, and Save/Download. Mirrors the compressor's per-image UX.
+- Remaining tiles stay: Compress, Convert, Add Text, Blur, Sharpen, Brightness/Contrast, Color Adjustments, Denoise.
+
+Files:
+- `src/routes/tools.image.tsx` — reorganize tile list.
+- `src/components/image/Transform.tsx` (new, merged tool)
+- `src/components/image/CropEditRotate.tsx` (new, upload + camera + editor)
+- Remove/retire individual `Resize.tsx`, `Rotate.tsx`, `Flip.tsx` tiles (logic folded into Transform).
+
+## Constraints
+
+- 100% client-side. No server calls added.
+- Camera uses `navigator.mediaDevices.getUserMedia` with graceful fallback to file input on unsupported browsers.
+- All enhancements implemented in `src/lib/image-enhance.ts` using ImageData math (no WASM).
+
+## New deps
+
+None — `pdf-lib` and `pdfjs-dist` already installed.
