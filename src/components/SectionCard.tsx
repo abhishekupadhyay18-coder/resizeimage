@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Camera, Download, Loader2, Upload } from "lucide-react";
 import {
   compressToRange,
@@ -15,6 +15,11 @@ import { CameraCapture } from "./CameraCapture";
 
 type Format = "jpg" | "jpeg" | "png";
 
+export interface SectionOutput {
+  name: string;
+  blob: Blob;
+}
+
 interface Props {
   title: string;
   description: string;
@@ -23,6 +28,7 @@ interface Props {
   downloadBase: string;
   accent: string;
   dpi?: boolean;
+  onOutput?: (out: SectionOutput | null) => void;
 }
 
 const DPI_PRESETS = [72, 150, 300, 600];
@@ -35,6 +41,7 @@ export function SectionCard({
   downloadBase,
   accent,
   dpi: dpiEnabled,
+  onOutput,
 }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [originalBitmap, setOriginalBitmap] = useState<ImageBitmap | null>(null);
@@ -42,7 +49,9 @@ export function SectionCard({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [result, setResult] = useState<CompressResult | null>(null);
   const [jpegUrl, setJpegUrl] = useState<string | null>(null);
+  const [jpegBlob, setJpegBlob] = useState<Blob | null>(null);
   const [pngUrl, setPngUrl] = useState<string | null>(null);
+  const [pngBlob, setPngBlob] = useState<Blob | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [format, setFormat] = useState<Format>("jpg");
@@ -62,8 +71,10 @@ export function SectionCard({
     setResult(null);
     if (jpegUrl) URL.revokeObjectURL(jpegUrl);
     setJpegUrl(null);
+    setJpegBlob(null);
     if (pngUrl) URL.revokeObjectURL(pngUrl);
     setPngUrl(null);
+    setPngBlob(null);
   };
 
   const updatePreview = (bmp: ImageBitmap) => {
@@ -92,6 +103,7 @@ export function SectionCard({
       const r = await compressToRange(bmp, minKB * 1024, maxKB * 1024);
       setResult(r);
       const tagged = dpiEnabled ? await setJpegDpi(r.blob, dpi) : r.blob;
+      setJpegBlob(tagged);
       setJpegUrl(URL.createObjectURL(tagged));
       const inRange = r.blob.size > minKB * 1024 && r.blob.size < maxKB * 1024;
       if (!inRange) {
@@ -177,6 +189,7 @@ export function SectionCard({
     (async () => {
       const tagged = await setJpegDpi(result.blob, dpi);
       if (cancelled) return;
+      setJpegBlob(tagged);
       setJpegUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev);
         return URL.createObjectURL(tagged);
@@ -196,6 +209,7 @@ export function SectionCard({
       try {
         const blob = await encodePng(bitmap);
         if (cancelled) return;
+        setPngBlob(blob);
         setPngUrl(URL.createObjectURL(blob));
       } catch (e) {
         console.error(e);
@@ -211,11 +225,13 @@ export function SectionCard({
 
   const downloadHref = format === "png" ? pngUrl : jpegUrl;
   const downloadFilename = `${downloadBase}.${format}`;
-  const pngSizeKB = useMemo(() => {
-    // We don't need to display it, but keep for future.
-    return null as number | null;
-  }, []);
-  void pngSizeKB;
+  const outBlob = format === "png" ? pngBlob : jpegBlob;
+
+  useEffect(() => {
+    if (!onOutput) return;
+    onOutput(outBlob ? { name: downloadFilename, blob: outBlob } : null);
+  }, [outBlob, downloadFilename, onOutput]);
+
 
   return (
     <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
