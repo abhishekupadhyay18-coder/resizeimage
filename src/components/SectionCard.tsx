@@ -41,6 +41,7 @@ export function SectionCard({
   downloadBase,
   accent,
   dpi: dpiEnabled,
+  onOutput,
 }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [originalBitmap, setOriginalBitmap] = useState<ImageBitmap | null>(null);
@@ -48,7 +49,9 @@ export function SectionCard({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [result, setResult] = useState<CompressResult | null>(null);
   const [jpegUrl, setJpegUrl] = useState<string | null>(null);
+  const [jpegBlob, setJpegBlob] = useState<Blob | null>(null);
   const [pngUrl, setPngUrl] = useState<string | null>(null);
+  const [pngBlob, setPngBlob] = useState<Blob | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [format, setFormat] = useState<Format>("jpg");
@@ -68,8 +71,10 @@ export function SectionCard({
     setResult(null);
     if (jpegUrl) URL.revokeObjectURL(jpegUrl);
     setJpegUrl(null);
+    setJpegBlob(null);
     if (pngUrl) URL.revokeObjectURL(pngUrl);
     setPngUrl(null);
+    setPngBlob(null);
   };
 
   const updatePreview = (bmp: ImageBitmap) => {
