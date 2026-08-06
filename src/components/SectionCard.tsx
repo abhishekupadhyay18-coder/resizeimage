@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Camera, Download, Loader2, Upload } from "lucide-react";
 import {
   compressToRange,
