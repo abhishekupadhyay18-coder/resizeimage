@@ -38,13 +38,19 @@ function bitmapToPreview(bmp: ImageBitmap): Promise<string> {
   });
 }
 
-export function AadhaarSection() {
+export function AadhaarSection({
+  onOutput,
+}: {
+  onOutput?: (out: { name: string; blob: Blob } | null) => void;
+}) {
   const [front, setFront] = useState<SideState>(initialSide);
   const [back, setBack] = useState<SideState>(initialSide);
   const [result, setResult] = useState<CompressResult | null>(null);
   const [mergedBitmap, setMergedBitmap] = useState<ImageBitmap | null>(null);
   const [jpegUrl, setJpegUrl] = useState<string | null>(null);
+  const [jpegBlob, setJpegBlob] = useState<Blob | null>(null);
   const [pngUrl, setPngUrl] = useState<string | null>(null);
+  const [pngBlob, setPngBlob] = useState<Blob | null>(null);
   const [format, setFormat] = useState<Format>("jpg");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
