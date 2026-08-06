@@ -72,7 +72,9 @@ export function AadhaarSection({
     if (pngUrl) URL.revokeObjectURL(pngUrl);
     setResult(null);
     setJpegUrl(null);
+    setJpegBlob(null);
     setPngUrl(null);
+    setPngBlob(null);
     setMergedBitmap(null);
   };
 
@@ -161,6 +163,7 @@ export function AadhaarSection({
       setMergedBitmap(merged);
       const r = await compressToRange(merged, MIN_KB * 1024, MAX_KB * 1024);
       setResult(r);
+      setJpegBlob(r.blob);
       setJpegUrl(URL.createObjectURL(r.blob));
       const inRange = r.blob.size > MIN_KB * 1024 && r.blob.size < MAX_KB * 1024;
       if (!inRange) {
@@ -182,6 +185,7 @@ export function AadhaarSection({
       try {
         const blob = await encodePng(mergedBitmap);
         if (cancelled) return;
+        setPngBlob(blob);
         setPngUrl(URL.createObjectURL(blob));
       } catch (e) {
         console.error(e);
@@ -197,7 +201,7 @@ export function AadhaarSection({
     state: SideState,
     inputRef: React.RefObject<HTMLInputElement | null>,
   ) => {
-    const label = which === "front" ? "Front" : "Back";
+    const label = which === "front" ? "Image 1" : "Image 2";
     if (!state.file || !state.bitmap || !state.previewUrl) {
       return (
         <div className="space-y-2">
@@ -211,7 +215,7 @@ export function AadhaarSection({
             }}
           >
             <Upload className="h-5 w-5 text-muted-foreground" />
-            <div className="mt-1 text-sm font-medium">{label} of Aadhaar</div>
+            <div className="mt-1 text-sm font-medium">{label}</div>
             <div className="text-xs text-muted-foreground">Click or drop</div>
             <input
               ref={inputRef}
@@ -268,10 +272,10 @@ export function AadhaarSection({
     <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
       <div className="flex items-center gap-2">
         <span className="inline-block h-2.5 w-2.5 rounded-full bg-amber-500" />
-        <h2 className="text-lg font-semibold text-foreground">Merge and compress</h2>
+        <h2 className="text-lg font-semibold text-foreground">Merge and compress ( Aadhar )</h2>
       </div>
       <p className="mt-1 text-sm text-muted-foreground">
-        Upload front and back separately. They are merged vertically into one image, then compressed.
+        Upload Image 1 and Image 2 separately. They are merged vertically into one image, then compressed.
       </p>
       <p className="mt-0.5 text-xs text-muted-foreground">
         Target: strictly &gt; {MIN_KB} KB and &lt; {MAX_KB} KB
