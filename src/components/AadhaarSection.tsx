@@ -267,6 +267,12 @@ export function AadhaarSection({
   const inRange = result ? result.blob.size > MIN_KB * 1024 && result.blob.size < MAX_KB * 1024 : false;
   const downloadHref = format === "png" ? pngUrl : jpegUrl;
   const downloadFilename = `${DOWNLOAD_BASE}.${format}`;
+  const outBlob = format === "png" ? pngBlob : jpegBlob;
+
+  useEffect(() => {
+    if (!onOutput) return;
+    onOutput(outBlob ? { name: downloadFilename, blob: outBlob } : null);
+  }, [outBlob, downloadFilename, onOutput]);
 
   return (
     <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
