@@ -209,6 +209,7 @@ export function SectionCard({
       try {
         const blob = await encodePng(bitmap);
         if (cancelled) return;
+        setPngBlob(blob);
         setPngUrl(URL.createObjectURL(blob));
       } catch (e) {
         console.error(e);
@@ -224,11 +225,13 @@ export function SectionCard({
 
   const downloadHref = format === "png" ? pngUrl : jpegUrl;
   const downloadFilename = `${downloadBase}.${format}`;
-  const pngSizeKB = useMemo(() => {
-    // We don't need to display it, but keep for future.
-    return null as number | null;
-  }, []);
-  void pngSizeKB;
+  const outBlob = format === "png" ? pngBlob : jpegBlob;
+
+  useEffect(() => {
+    if (!onOutput) return;
+    onOutput(outBlob ? { name: downloadFilename, blob: outBlob } : null);
+  }, [outBlob, downloadFilename, onOutput]);
+
 
   return (
     <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
