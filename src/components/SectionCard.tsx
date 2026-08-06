@@ -103,6 +103,7 @@ export function SectionCard({
       const r = await compressToRange(bmp, minKB * 1024, maxKB * 1024);
       setResult(r);
       const tagged = dpiEnabled ? await setJpegDpi(r.blob, dpi) : r.blob;
+      setJpegBlob(tagged);
       setJpegUrl(URL.createObjectURL(tagged));
       const inRange = r.blob.size > minKB * 1024 && r.blob.size < maxKB * 1024;
       if (!inRange) {
