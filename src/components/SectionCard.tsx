@@ -15,6 +15,11 @@ import { CameraCapture } from "./CameraCapture";
 
 type Format = "jpg" | "jpeg" | "png";
 
+export interface SectionOutput {
+  name: string;
+  blob: Blob;
+}
+
 interface Props {
   title: string;
   description: string;
@@ -23,6 +28,7 @@ interface Props {
   downloadBase: string;
   accent: string;
   dpi?: boolean;
+  onOutput?: (out: SectionOutput | null) => void;
 }
 
 const DPI_PRESETS = [72, 150, 300, 600];
