@@ -189,6 +189,7 @@ export function SectionCard({
     (async () => {
       const tagged = await setJpegDpi(result.blob, dpi);
       if (cancelled) return;
+      setJpegBlob(tagged);
       setJpegUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev);
         return URL.createObjectURL(tagged);
