@@ -52,11 +52,21 @@ interface Props {
 /** Interactive on-image text layer: click to place, drag to move, handle to resize. */
 export function TextLayer({ url, boxes, onChange, selectedId, onSelect }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
+  const [wrapH, setWrapH] = useState(0);
   const [drag, setDrag] = useState<
     | { id: string; mode: "move"; dx: number; dy: number }
     | { id: string; mode: "resize"; startY: number; startSize: number }
     | null
   >(null);
+
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setWrapH(el.getBoundingClientRect().height));
+    ro.observe(el);
+    setWrapH(el.getBoundingClientRect().height);
+    return () => ro.disconnect();
+  }, [url]);
 
   useEffect(() => {
     if (!drag) return;
@@ -137,7 +147,7 @@ export function TextLayer({ url, boxes, onChange, selectedId, onSelect }: Props)
           style={{
             left: `${b.x * 100}%`,
             top: `${b.y * 100}%`,
-            fontSize: `${b.size * 100}cqh`,
+            fontSize: `${Math.max(6, b.size * wrapH)}px`,
             color: b.color,
             fontWeight: b.bold ? 700 : 400,
             fontFamily: b.font,
@@ -145,14 +155,7 @@ export function TextLayer({ url, boxes, onChange, selectedId, onSelect }: Props)
             lineHeight: 1,
           }}
         >
-          <span
-            style={{
-              fontSize: `calc(${b.size} * var(--img-h, 400px))`,
-              display: "inline-block",
-            }}
-          >
-            {b.text || " "}
-          </span>
+          {b.text || " "}
           {selectedId === b.id && (
             <span
               onPointerDown={(e) => {
