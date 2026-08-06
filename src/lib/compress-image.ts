@@ -256,3 +256,58 @@ export async function compressToRange(
   }
   return result;
 }
+
+/**
+ * Encode a JPEG whose size is strictly below maxBytes, keeping the original
+ * pixel dimensions whenever possible. Only downscales when even the lowest
+ * usable quality cannot fit.
+ */
+export async function compressBelow(
+  bitmap: ImageBitmap,
+  maxBytes: number,
+): Promise<CompressResult & { downscaled: boolean }> {
+  const encode = async (scale: number, q: number) => {
+    const canvas = drawToCanvas(bitmap, bitmap.width * scale, bitmap.height * scale);
+    const blob = await canvasToBlob(canvas, q);
+    return { blob, sizeKB: blob.size / 1024, width: canvas.width, height: canvas.height, quality: q };
+  };
+
+  // Pass 1: full resolution, binary search on quality.
+  let lo = 0.3;
+  let hi = 0.97;
+  let best: CompressResult | null = null;
+  for (let i = 0; i < 9; i++) {
+    const q = (lo + hi) / 2;
+    const r = await encode(1, q);
+    if (r.blob.size < maxBytes) {
+      if (!best || r.blob.size > best.blob.size) best = r;
+      lo = q;
+    } else {
+      hi = q;
+    }
+  }
+  if (best) return { ...best, downscaled: false };
+
+  // Pass 2: shrink progressively, still preferring the highest quality that fits.
+  let scale = 0.9;
+  while (scale > 0.05) {
+    let l = 0.3;
+    let h = 0.95;
+    let localBest: CompressResult | null = null;
+    for (let i = 0; i < 7; i++) {
+      const q = (l + h) / 2;
+      const r = await encode(scale, q);
+      if (r.blob.size < maxBytes) {
+        if (!localBest || r.blob.size > localBest.blob.size) localBest = r;
+        l = q;
+      } else {
+        h = q;
+      }
+    }
+    if (localBest) return { ...localBest, downscaled: true };
+    scale *= 0.8;
+  }
+
+  const last = await encode(0.05, 0.3);
+  return { ...last, downscaled: true };
+}
