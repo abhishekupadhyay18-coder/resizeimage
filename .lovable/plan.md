@@ -80,3 +80,26 @@ The camera viewfinder is shared by all tools, so one change covers every card.
 - `src/routes/tools.pdf.tsx`: merge `merge`+`add` actions, drop `rotate` from `ACTIONS`, add HTML5 drag-and-drop (pointer-hold to activate) on the thumbnail grid, per-thumb rotate button writing into page rotation state.
 - Multi-file/image merge via `pdf-lib` (`embedJpg`/`embedPng` for images, `copyPages` for PDFs).
 - Range parser for split; extract renders pages with `pdfjs-dist` to canvas for JPG/PNG, `pdf-lib` for PDF, and `docx` for DOCX output (image-per-page).
+
+## Part 5 — Loading feedback, File Converter and responsive icons
+
+### PDF Tools loading + speed
+- Show a loading animation immediately when a PDF is picked or dropped (spinner + file name + page-by-page progress), so it's clear the file is opening.
+- Speed up opening: render the first thumbnails right away and fill in the rest in the background, cap thumbnail resolution, and reuse the already-parsed document instead of re-reading the file.
+
+### File Converter
+- Image to PDF: show thumbnails of the selected images (with name, size, remove button and reorder).
+- PDF to image: show the selected PDFs in a list with name, size, page count and a remove button.
+- Rename the Compress tool to "Compress / DPI" and add a DPI selector (72/150/300/600 + custom) next to the size selector.
+
+### PDF Maker
+- Accept PDF files as input in addition to images/camera pages, so existing PDFs can be added to the document being built.
+
+### Icon sizing
+- Keep the current icon/card size on mobile (already good for Android) and scale icons and tiles up at desktop breakpoints only.
+
+### Technical notes
+- `src/routes/tools.pdf.tsx`: `loading` state around `renderThumbs`, incremental thumbnail streaming with a progress count, `devicePixelRatio`-aware but capped scale, keep the `pdfjs` document handle in a ref.
+- `src/routes/tools.convert.tsx`: selected-file preview lists, rename compress action, add DPI select wired through `setJpegDpi`.
+- `src/routes/tools.pdf-maker.tsx`: allow `application/pdf` in the file input and append its pages via `pdf-lib`.
+- `src/components/ToolCard.tsx` / `src/routes/index.tsx`: responsive icon/tile sizes via `md:`/`lg:` classes only.
