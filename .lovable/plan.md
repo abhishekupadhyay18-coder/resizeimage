@@ -53,3 +53,30 @@ The camera viewfinder is shared by all tools, so one change covers every card.
 - `src/routes/tools.image.tsx`: rework `TOOLS` (merge `cropedit`+`transform`-crop+`compress`, drop `sharpen`), lift colour/bright slider state to the page so it persists, add DPI to `CompressPanel`, add PDF to `ConvertPanel` (pdf-lib, already a dependency).
 - `src/components/image/TextLayer.tsx`: contentEditable boxes with corner move-badge, selection state shared with a new layers list panel; text styling state per layer.
 - New `src/lib/image-filters.ts` additions: region blur compositing via mask canvas, bilateral-style denoise.
+
+## Part 4 — PDF Tools (card 3)
+
+### Organize
+- Drag and drop page reordering: press and hold a page briefly to pick it up, then drag it anywhere in the grid to drop it in the new position, with a live insertion indicator.
+- Keep a manual option too: type/choose a target position for a page, plus move-left / move-right buttons.
+
+### Merge / Add pages
+- Merge PDF and Add Pages become one tool named "Merge / Add pages".
+- "Append another PDF" is renamed "Add more PDF" and becomes a large, highlighted primary action.
+- It accepts multiple PDFs in a single selection, and also accepts images (JPG/PNG/WEBP), each added as a new page.
+
+### Split
+- Add manual page-range input (e.g. `1-3, 4-8, 9-`) so the user controls exactly how the document is split, alongside the existing split point.
+
+### Extract
+- Output format choice: JPG, PNG, DOCX or PDF.
+- If no page is selected, show a prompt asking the user to select pages; when the user still extracts without a selection, all pages are extracted automatically.
+
+### Rotate
+- Remove the standalone Rotate tool.
+- Every page thumbnail gets a small rotate icon in its top-right corner that rotates that page on tap.
+
+### Technical notes (PDF)
+- `src/routes/tools.pdf.tsx`: merge `merge`+`add` actions, drop `rotate` from `ACTIONS`, add HTML5 drag-and-drop (pointer-hold to activate) on the thumbnail grid, per-thumb rotate button writing into page rotation state.
+- Multi-file/image merge via `pdf-lib` (`embedJpg`/`embedPng` for images, `copyPages` for PDFs).
+- Range parser for split; extract renders pages with `pdfjs-dist` to canvas for JPG/PNG, `pdf-lib` for PDF, and `docx` for DOCX output (image-per-page).
