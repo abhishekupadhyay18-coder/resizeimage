@@ -149,20 +149,8 @@ function renderScaled(bitmap: ImageBitmap, scale: number): HTMLCanvasElement {
   return canvas;
 }
 
-function drawToCanvas(
 
-  source: CanvasImageSource,
-  width: number,
-  height: number,
-): HTMLCanvasElement {
-  const canvas = newCanvas(width, height);
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Canvas 2D context unavailable");
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
-  return canvas;
-}
+
 
 export async function rotateBitmap(
   bitmap: ImageBitmap,
