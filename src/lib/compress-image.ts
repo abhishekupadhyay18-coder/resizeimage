@@ -52,21 +52,105 @@ export async function loadBitmap(file: File): Promise<ImageBitmap> {
   return await createImageBitmap(file, { imageOrientation: "from-image" });
 }
 
-function drawToCanvas(
-  source: CanvasImageSource,
-  width: number,
-  height: number,
-): HTMLCanvasElement {
+function newCanvas(width: number, height: number): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(width));
   canvas.height = Math.max(1, Math.round(height));
+  return canvas;
+}
+
+/**
+ * High quality downscale: halve repeatedly (browser box-filters each step)
+ * before the final draw, which keeps far more detail than one big jump.
+ */
+function steppedResize(
+  source: CanvasImageSource,
+  srcW: number,
+  srcH: number,
+  width: number,
+  height: number,
+): HTMLCanvasElement {
+  const targetW = Math.max(1, Math.round(width));
+  const targetH = Math.max(1, Math.round(height));
+  let cur: CanvasImageSource = source;
+  let curW = srcW;
+  let curH = srcH;
+  while (curW / 2 > targetW && curH / 2 > targetH) {
+    const c = newCanvas(curW / 2, curH / 2);
+    const cx = c.getContext("2d")!;
+    cx.imageSmoothingEnabled = true;
+    cx.imageSmoothingQuality = "high";
+    cx.drawImage(cur, 0, 0, c.width, c.height);
+    cur = c;
+    curW = c.width;
+    curH = c.height;
+  }
+  const canvas = newCanvas(targetW, targetH);
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas 2D context unavailable");
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
-  return ctx.canvas;
+  ctx.drawImage(cur, 0, 0, targetW, targetH);
+  return canvas;
 }
+
+/**
+ * Unsharp-mask style sharpening applied in place. `amount` 0..1.
+ * Keeps document text crisp after a downscale.
+ */
+function sharpenInPlace(canvas: HTMLCanvasElement, amount: number) {
+  if (amount <= 0.01) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const w = canvas.width;
+  const h = canvas.height;
+  if (w * h > 24_000_000) return;
+  const src = ctx.getImageData(0, 0, w, h);
+  const s = src.data;
+  const out = ctx.createImageData(w, h);
+  const d = out.data;
+  const a = amount;
+  const center = 1 + 4 * a;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const p = (y * w + x) * 4;
+      const up = ((y > 0 ? y - 1 : 0) * w + x) * 4;
+      const dn = ((y < h - 1 ? y + 1 : h - 1) * w + x) * 4;
+      const lf = (y * w + (x > 0 ? x - 1 : 0)) * 4;
+      const rt = (y * w + (x < w - 1 ? x + 1 : w - 1)) * 4;
+      for (let c = 0; c < 3; c++) {
+        const v =
+          s[p + c] * center - a * (s[up + c] + s[dn + c] + s[lf + c] + s[rt + c]);
+        d[p + c] = v < 0 ? 0 : v > 255 ? 255 : v;
+      }
+      d[p + 3] = s[p + 3];
+    }
+  }
+  ctx.putImageData(out, 0, 0);
+}
+
+/**
+ * Render the bitmap at `scale` with high-quality stepped downscaling plus an
+ * adaptive sharpening pass sized to how much detail the resize removed.
+ */
+function renderScaled(bitmap: ImageBitmap, scale: number): HTMLCanvasElement {
+  const s = Math.max(0.01, Math.min(4, scale));
+  const canvas = steppedResize(
+    bitmap,
+    bitmap.width,
+    bitmap.height,
+    bitmap.width * s,
+    bitmap.height * s,
+  );
+  if (s < 0.995) {
+    // More shrink → more sharpening, capped so it never looks crunchy.
+    sharpenInPlace(canvas, Math.min(0.55, (1 - s) * 0.9 + 0.12));
+  }
+  return canvas;
+}
+
+
+
 
 export async function rotateBitmap(
   bitmap: ImageBitmap,
@@ -90,6 +174,72 @@ export async function rotateBitmap(
   ctx.drawImage(bitmap, -w / 2, -h / 2);
   return await createImageBitmap(canvas);
 }
+
+/**
+ * Largest axis-aligned rectangle with the source aspect ratio that fits
+ * entirely inside a w×h rectangle rotated by `degrees`.
+ */
+export function inscribedRect(
+  w: number,
+  h: number,
+  degrees: number,
+): { w: number; h: number } {
+  const rad = (Math.abs(degrees % 180) * Math.PI) / 180;
+  if (rad === 0) return { w, h };
+  const sinA = Math.abs(Math.sin(rad));
+  const cosA = Math.abs(Math.cos(rad));
+  const widthIsLonger = w >= h;
+  const sideLong = widthIsLonger ? w : h;
+  const sideShort = widthIsLonger ? h : w;
+  let wr: number;
+  let hr: number;
+  if (sideShort <= 2 * sinA * cosA * sideLong || Math.abs(sinA - cosA) < 1e-10) {
+    const x = 0.5 * sideShort;
+    if (widthIsLonger) {
+      wr = x / sinA;
+      hr = x / cosA;
+    } else {
+      wr = x / cosA;
+      hr = x / sinA;
+    }
+  } else {
+    const cos2a = cosA * cosA - sinA * sinA;
+    wr = (w * cosA - h * sinA) / cos2a;
+    hr = (h * cosA - w * sinA) / cos2a;
+  }
+  return {
+    w: Math.max(1, Math.min(w, Math.floor(wr))),
+    h: Math.max(1, Math.min(h, Math.floor(hr))),
+  };
+}
+
+/**
+ * Rotate then auto-crop to the largest rectangle fully inside the rotated
+ * frame, so no black/empty corners remain — like rotating in a phone gallery.
+ */
+export async function rotateBitmapCropped(
+  bitmap: ImageBitmap,
+  degrees: number,
+): Promise<ImageBitmap> {
+  const deg = degrees % 360;
+  if (deg === 0) return bitmap;
+  const rad = (deg * Math.PI) / 180;
+  const w = bitmap.width;
+  const h = bitmap.height;
+  const target = inscribedRect(w, h, deg);
+  const canvas = document.createElement("canvas");
+  canvas.width = target.w;
+  canvas.height = target.h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas 2D context unavailable");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.translate(target.w / 2, target.h / 2);
+  ctx.rotate(rad);
+  ctx.drawImage(bitmap, -w / 2, -h / 2);
+  return await createImageBitmap(canvas);
+}
+
 
 export async function mergeVertical(
   top: ImageBitmap,
@@ -187,7 +337,7 @@ export async function compressToRange(
 
   const encode = async (s: number, q: number): Promise<CompressResult> => {
     attempts++;
-    const canvas = drawToCanvas(bitmap, bitmap.width * s, bitmap.height * s);
+    const canvas = renderScaled(bitmap, s);
     const blob = await canvasToBlob(canvas, q);
     const r: CompressResult = {
       blob,
@@ -203,7 +353,7 @@ export async function compressToRange(
   // Heuristic starting scale: aim for pixel count ~ maxBytes * 8 (roughly
   // matches JPEG at q≈0.8 for photos). Cap at 1 so we never upscale first.
   const pixels = bitmap.width * bitmap.height;
-  const targetPixels = Math.max(maxBytes * 8, 40_000);
+  const targetPixels = Math.max(maxBytes * 14, 60_000);
   let scale = Math.min(1, Math.sqrt(targetPixels / pixels));
   if (!isFinite(scale) || scale <= 0) scale = 1;
 
@@ -244,7 +394,7 @@ export async function compressToRange(
   const result = bestUnder ?? bestOverall;
   if (!result) {
     // Last-ditch effort so we never throw.
-    const canvas = drawToCanvas(bitmap, bitmap.width * 0.25, bitmap.height * 0.25);
+    const canvas = renderScaled(bitmap, 0.25);
     const blob = await canvasToBlob(canvas, 0.4);
     return {
       blob,
@@ -267,7 +417,7 @@ export async function compressBelow(
   maxBytes: number,
 ): Promise<CompressResult & { downscaled: boolean }> {
   const encode = async (scale: number, q: number) => {
-    const canvas = drawToCanvas(bitmap, bitmap.width * scale, bitmap.height * scale);
+    const canvas = renderScaled(bitmap, scale);
     const blob = await canvasToBlob(canvas, q);
     return { blob, sizeKB: blob.size / 1024, width: canvas.width, height: canvas.height, quality: q };
   };
