@@ -349,7 +349,7 @@ export async function compressToRange(
 
   const encode = async (s: number, q: number): Promise<CompressResult> => {
     attempts++;
-    const canvas = drawToCanvas(bitmap, bitmap.width * s, bitmap.height * s);
+    const canvas = renderScaled(bitmap, s);
     const blob = await canvasToBlob(canvas, q);
     const r: CompressResult = {
       blob,
@@ -406,7 +406,7 @@ export async function compressToRange(
   const result = bestUnder ?? bestOverall;
   if (!result) {
     // Last-ditch effort so we never throw.
-    const canvas = drawToCanvas(bitmap, bitmap.width * 0.25, bitmap.height * 0.25);
+    const canvas = renderScaled(bitmap, 0.25);
     const blob = await canvasToBlob(canvas, 0.4);
     return {
       blob,
@@ -429,7 +429,7 @@ export async function compressBelow(
   maxBytes: number,
 ): Promise<CompressResult & { downscaled: boolean }> {
   const encode = async (scale: number, q: number) => {
-    const canvas = drawToCanvas(bitmap, bitmap.width * scale, bitmap.height * scale);
+    const canvas = renderScaled(bitmap, scale);
     const blob = await canvasToBlob(canvas, q);
     return { blob, sizeKB: blob.size / 1024, width: canvas.width, height: canvas.height, quality: q };
   };
