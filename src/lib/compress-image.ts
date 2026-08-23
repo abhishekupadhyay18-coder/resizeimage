@@ -353,7 +353,7 @@ export async function compressToRange(
   // Heuristic starting scale: aim for pixel count ~ maxBytes * 8 (roughly
   // matches JPEG at q≈0.8 for photos). Cap at 1 so we never upscale first.
   const pixels = bitmap.width * bitmap.height;
-  const targetPixels = Math.max(maxBytes * 8, 40_000);
+  const targetPixels = Math.max(maxBytes * 14, 60_000);
   let scale = Math.min(1, Math.sqrt(targetPixels / pixels));
   if (!isFinite(scale) || scale <= 0) scale = 1;
 
