@@ -129,7 +129,28 @@ function sharpenInPlace(canvas: HTMLCanvasElement, amount: number) {
   ctx.putImageData(out, 0, 0);
 }
 
+/**
+ * Render the bitmap at `scale` with high-quality stepped downscaling plus an
+ * adaptive sharpening pass sized to how much detail the resize removed.
+ */
+function renderScaled(bitmap: ImageBitmap, scale: number): HTMLCanvasElement {
+  const s = Math.max(0.01, Math.min(4, scale));
+  const canvas = steppedResize(
+    bitmap,
+    bitmap.width,
+    bitmap.height,
+    bitmap.width * s,
+    bitmap.height * s,
+  );
+  if (s < 0.995) {
+    // More shrink → more sharpening, capped so it never looks crunchy.
+    sharpenInPlace(canvas, Math.min(0.55, (1 - s) * 0.9 + 0.12));
+  }
+  return canvas;
+}
+
 function drawToCanvas(
+
   source: CanvasImageSource,
   width: number,
   height: number,
