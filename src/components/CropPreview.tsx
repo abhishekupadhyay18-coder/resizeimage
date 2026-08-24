@@ -217,15 +217,25 @@ export function CropPreview({
         </div>
       )}
       <div className="relative mx-auto max-h-96 w-fit overflow-hidden rounded-md border border-border bg-muted select-none touch-none">
-        <img
-          ref={imgRef}
-          src={url}
-          alt={label ?? "preview"}
-          onLoad={measure}
-          draggable={false}
-          style={{ transform: `rotate(${fineDeg}deg)` }}
-          className="block max-h-96 w-auto object-contain pointer-events-none transition-transform"
-        />
+        <div
+          style={{
+            clipPath:
+              fineDeg === 0 || !displaySize.w
+                ? undefined
+                : `inset(${(displaySize.h - inscribed.h) / 2}px ${(displaySize.w - inscribed.w) / 2}px)`,
+          }}
+        >
+          <img
+            ref={imgRef}
+            src={url}
+            alt={label ?? "preview"}
+            onLoad={measure}
+            draggable={false}
+            style={{ transform: `rotate(${fineDeg}deg)` }}
+            className="block max-h-96 w-auto object-contain pointer-events-none transition-transform"
+          />
+        </div>
+
         {displaySize.w > 0 && (
           <>
             <div
