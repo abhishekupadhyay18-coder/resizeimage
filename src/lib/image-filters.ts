@@ -158,3 +158,124 @@ export async function denoiseCanvas(bmp: ImageBitmap): Promise<HTMLCanvasElement
   ctx.putImageData(out, 0, 0);
   return c;
 }
+
+/** Unsharp-mask sharpening. `amount` 0..3, applied via a 3x3 kernel. */
+export async function unsharpMask(
+  bmp: ImageBitmap,
+  amount: number,
+): Promise<HTMLCanvasElement> {
+  const c = bitmapToCanvas(bmp);
+  if (amount <= 0.01) return c;
+  const ctx = c.getContext("2d")!;
+  const img = ctx.getImageData(0, 0, c.width, c.height);
+  const a = amount;
+  const kernel = [0, -a, 0, -a, 1 + 4 * a, -a, 0, -a, 0];
+  ctx.putImageData(convolve3x3(img, kernel), 0, 0);
+  return c;
+}
+
+/**
+ * Blur only the areas painted white in `mask` (same size as the image).
+ * Everything else stays pixel-identical.
+ */
+export async function regionBlurCanvas(
+  bmp: ImageBitmap,
+  mask: HTMLCanvasElement,
+  radius: number,
+): Promise<HTMLCanvasElement> {
+  const base = bitmapToCanvas(bmp);
+  if (radius <= 0) return base;
+
+  // 1. Blurred copy of the whole image.
+  const blurred = document.createElement("canvas");
+  blurred.width = base.width;
+  blurred.height = base.height;
+  const bctx = blurred.getContext("2d")!;
+  bctx.filter = `blur(${radius}px)`;
+  bctx.drawImage(base, 0, 0);
+  bctx.filter = "none";
+
+  // 2. Keep only the masked part of the blurred copy.
+  bctx.globalCompositeOperation = "destination-in";
+  bctx.drawImage(mask, 0, 0, base.width, base.height);
+  bctx.globalCompositeOperation = "source-over";
+
+  // 3. Stamp it back over the original.
+  const ctx = base.getContext("2d")!;
+  ctx.drawImage(blurred, 0, 0);
+  return base;
+}
+
+/**
+ * Edge-preserving (bilateral-style) denoise. `strength` 0..1 controls how
+ * aggressively similar pixels are averaged; `detail` 0..1 adds a light
+ * sharpening pass afterwards so text edges survive.
+ */
+export async function bilateralDenoise(
+  bmp: ImageBitmap,
+  strength = 0.6,
+  detail = 0.35,
+): Promise<HTMLCanvasElement> {
+  const c = bitmapToCanvas(bmp);
+  const ctx = c.getContext("2d")!;
+  const w = c.width;
+  const h = c.height;
+  const src = ctx.getImageData(0, 0, w, h);
+  const s = src.data;
+  const out = ctx.createImageData(w, h);
+  const d = out.data;
+
+  const radius = strength > 0.66 ? 2 : 1;
+  // Larger sigma → more smoothing of similar tones, edges still preserved.
+  const sigmaR = 12 + strength * 48;
+  const inv2s2 = 1 / (2 * sigmaR * sigmaR);
+  const spatial: number[] = [];
+  const sigmaS = radius;
+  for (let dy = -radius; dy <= radius; dy++) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      spatial.push(Math.exp(-(dx * dx + dy * dy) / (2 * sigmaS * sigmaS)));
+    }
+  }
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const p = (y * w + x) * 4;
+      const lc = 0.299 * s[p] + 0.587 * s[p + 1] + 0.114 * s[p + 2];
+      let wsum = 0;
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let k = 0;
+      for (let dy = -radius; dy <= radius; dy++) {
+        const py = y + dy < 0 ? 0 : y + dy > h - 1 ? h - 1 : y + dy;
+        for (let dx = -radius; dx <= radius; dx++) {
+          const px = x + dx < 0 ? 0 : x + dx > w - 1 ? w - 1 : x + dx;
+          const q = (py * w + px) * 4;
+          const lq = 0.299 * s[q] + 0.587 * s[q + 1] + 0.114 * s[q + 2];
+          const diff = lq - lc;
+          const weight = spatial[k++] * Math.exp(-(diff * diff) * inv2s2);
+          wsum += weight;
+          r += s[q] * weight;
+          g += s[q + 1] * weight;
+          b += s[q + 2] * weight;
+        }
+      }
+      d[p] = r / wsum;
+      d[p + 1] = g / wsum;
+      d[p + 2] = b / wsum;
+      d[p + 3] = s[p + 3];
+    }
+  }
+  ctx.putImageData(out, 0, 0);
+
+  if (detail > 0.02) {
+    const img = ctx.getImageData(0, 0, w, h);
+    const a = detail * 0.8;
+    ctx.putImageData(
+      convolve3x3(img, [0, -a, 0, -a, 1 + 4 * a, -a, 0, -a, 0]),
+      0,
+      0,
+    );
+  }
+  return c;
+}
