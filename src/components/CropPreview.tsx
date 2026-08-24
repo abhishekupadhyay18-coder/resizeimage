@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, RotateCcw, RotateCw, Undo2, X } from "lucide-react";
-import type { CropRect } from "@/lib/compress-image";
+import { inscribedRect, type CropRect } from "@/lib/compress-image";
 
 interface Props {
   url: string;
@@ -89,6 +89,8 @@ export function CropPreview({
       window.removeEventListener("resize", measure);
     };
   }, [measure]);
+
+  const inscribed = inscribedRect(displaySize.w || 1, displaySize.h || 1, fineDeg);
 
   const scaleX = displaySize.w / naturalWidth || 1;
   const scaleY = displaySize.h / naturalHeight || 1;
@@ -217,15 +219,25 @@ export function CropPreview({
         </div>
       )}
       <div className="relative mx-auto max-h-96 w-fit overflow-hidden rounded-md border border-border bg-muted select-none touch-none">
-        <img
-          ref={imgRef}
-          src={url}
-          alt={label ?? "preview"}
-          onLoad={measure}
-          draggable={false}
-          style={{ transform: `rotate(${fineDeg}deg)` }}
-          className="block max-h-96 w-auto object-contain pointer-events-none transition-transform"
-        />
+        <div
+          style={{
+            clipPath:
+              fineDeg === 0 || !displaySize.w
+                ? undefined
+                : `inset(${(displaySize.h - inscribed.h) / 2}px ${(displaySize.w - inscribed.w) / 2}px)`,
+          }}
+        >
+          <img
+            ref={imgRef}
+            src={url}
+            alt={label ?? "preview"}
+            onLoad={measure}
+            draggable={false}
+            style={{ transform: `rotate(${fineDeg}deg)` }}
+            className="block max-h-96 w-auto object-contain pointer-events-none transition-transform"
+          />
+        </div>
+
         {displaySize.w > 0 && (
           <>
             <div
@@ -353,7 +365,7 @@ export function CropPreview({
           )}
         </div>
         <p className="text-[11px] text-muted-foreground">
-          Adjust rotation and drag the corner handles to crop, then press Apply.
+          Rotate to straighten (corners are trimmed automatically) and drag the handles to crop, then press Apply.
         </p>
       </div>
     </div>

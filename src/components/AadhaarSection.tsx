@@ -7,6 +7,7 @@ import {
   loadBitmap,
   mergeVertical,
   rotateBitmap,
+  rotateBitmapCropped,
   type CompressResult,
   type CropRect,
 } from "@/lib/compress-image";
@@ -123,7 +124,7 @@ export function AadhaarSection({
   const rotateFineSide = async (which: "front" | "back", deg: number) => {
     const s = which === "front" ? front : back;
     if (!s.bitmap || deg === 0) return;
-    const rotated = await rotateBitmap(s.bitmap, deg);
+    const rotated = await rotateBitmapCropped(s.bitmap, deg);
     await updateSide(which, rotated, true);
   };
 

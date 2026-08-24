@@ -1,5 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { Trash2, Type } from "lucide-react";
+import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
+  ArrowDown,
+  ArrowUp,
+  Copy,
+  Move,
+  Trash2,
+  Type,
+} from "lucide-react";
 
 export interface TextBox {
   id: string;
@@ -7,37 +17,104 @@ export interface TextBox {
   /** fractions of image size (0..1) */
   x: number;
   y: number;
+  /** width as a fraction of image width (used for wrapping/alignment) */
+  w: number;
   /** font size as a fraction of image height */
   size: number;
   color: string;
   bold: boolean;
+  italic: boolean;
+  underline: boolean;
   font: string;
   outline: boolean;
+  bg: boolean;
+  bgColor: string;
+  opacity: number;
+  align: "left" | "center" | "right";
+  letterSpacing: number;
+  rotation: number;
 }
 
-const FONTS = [
+export const FONTS = [
   { label: "Sans", value: "system-ui, -apple-system, Segoe UI, sans-serif" },
   { label: "Serif", value: "Georgia, 'Times New Roman', serif" },
   { label: "Mono", value: "ui-monospace, 'Courier New', monospace" },
   { label: "Rounded", value: "'Trebuchet MS', Verdana, sans-serif" },
+  { label: "Impact", value: "Impact, 'Arial Black', sans-serif" },
+  { label: "Palatino", value: "'Palatino Linotype', Palatino, serif" },
 ];
 
-export function drawTextBoxes(
-  canvas: HTMLCanvasElement,
-  boxes: TextBox[],
-) {
+export function newTextBox(x: number, y: number): TextBox {
+  return {
+    id: Math.random().toString(36).slice(2),
+    text: "",
+    x,
+    y,
+    w: 0.5,
+    size: 0.07,
+    color: "#ffffff",
+    bold: true,
+    italic: false,
+    underline: false,
+    font: FONTS[0].value,
+    outline: true,
+    bg: false,
+    bgColor: "#000000",
+    opacity: 1,
+    align: "left",
+    letterSpacing: 0,
+    rotation: 0,
+  };
+}
+
+/** Bake the text boxes into the canvas exactly as previewed. */
+export function drawTextBoxes(canvas: HTMLCanvasElement, boxes: TextBox[]) {
   const ctx = canvas.getContext("2d")!;
   for (const b of boxes) {
+    if (!b.text.trim()) continue;
     const px = b.size * canvas.height;
-    ctx.font = `${b.bold ? "bold " : ""}${px}px ${b.font}`;
+    const lines = b.text.split("\n");
+    ctx.save();
+    ctx.globalAlpha = b.opacity;
+    ctx.font = `${b.italic ? "italic " : ""}${b.bold ? "bold " : ""}${px}px ${b.font}`;
     ctx.textBaseline = "top";
-    ctx.fillStyle = b.color;
-    if (b.outline) {
-      ctx.lineWidth = Math.max(1, px / 14);
-      ctx.strokeStyle = "rgba(0,0,0,0.6)";
-      ctx.strokeText(b.text, b.x * canvas.width, b.y * canvas.height);
+    ctx.textAlign = b.align;
+    if ("letterSpacing" in ctx) {
+      (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing =
+        `${b.letterSpacing * px}px`;
     }
-    ctx.fillText(b.text, b.x * canvas.width, b.y * canvas.height);
+    const originX = b.x * canvas.width;
+    const originY = b.y * canvas.height;
+    ctx.translate(originX, originY);
+    if (b.rotation) ctx.rotate((b.rotation * Math.PI) / 180);
+    const lineH = px * 1.18;
+    const widest = Math.max(...lines.map((l) => ctx.measureText(l).width));
+    const offX = b.align === "center" ? widest / 2 : b.align === "right" ? widest : 0;
+
+    if (b.bg) {
+      ctx.fillStyle = b.bgColor;
+      const pad = px * 0.16;
+      const left = b.align === "center" ? -widest / 2 : b.align === "right" ? -widest : 0;
+      ctx.fillRect(left - pad, -pad, widest + pad * 2, lineH * lines.length + pad * 2);
+    }
+
+    lines.forEach((line, i) => {
+      const ly = i * lineH;
+      if (b.outline) {
+        ctx.lineWidth = Math.max(1, px / 12);
+        ctx.strokeStyle = "rgba(0,0,0,0.65)";
+        ctx.lineJoin = "round";
+        ctx.strokeText(line, offX, ly);
+      }
+      ctx.fillStyle = b.color;
+      ctx.fillText(line, offX, ly);
+      if (b.underline) {
+        const wLine = ctx.measureText(line).width;
+        const lx = b.align === "center" ? offX - wLine / 2 : b.align === "right" ? offX - wLine : offX;
+        ctx.fillRect(lx, ly + px * 1.02, wLine, Math.max(1, px / 16));
+      }
+    });
+    ctx.restore();
   }
 }
 
@@ -47,12 +124,25 @@ interface Props {
   onChange: (boxes: TextBox[]) => void;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  filterCss?: string | null;
 }
 
-/** Interactive on-image text layer: click to place, drag to move, handle to resize. */
-export function TextLayer({ url, boxes, onChange, selectedId, onSelect }: Props) {
+/**
+ * Interactive on-image text layer. One click on the image adds a box with a
+ * blinking caret; the badge at the top-right corner moves it, the bottom-right
+ * dot resizes it.
+ */
+export function TextLayer({
+  url,
+  boxes,
+  onChange,
+  selectedId,
+  onSelect,
+  filterCss,
+}: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [wrapH, setWrapH] = useState(0);
+  const focusNext = useRef<string | null>(null);
   const [drag, setDrag] = useState<
     | { id: string; mode: "move"; dx: number; dy: number }
     | { id: string; mode: "resize"; startY: number; startSize: number }
@@ -67,6 +157,23 @@ export function TextLayer({ url, boxes, onChange, selectedId, onSelect }: Props)
     setWrapH(el.getBoundingClientRect().height);
     return () => ro.disconnect();
   }, [url]);
+
+  // Put the caret in a freshly created box.
+  useEffect(() => {
+    if (!focusNext.current) return;
+    const id = focusNext.current;
+    const el = wrapRef.current?.querySelector<HTMLElement>(`[data-box="${id}"]`);
+    if (el) {
+      el.focus();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+      focusNext.current = null;
+    }
+  }, [boxes]);
 
   useEffect(() => {
     if (!drag) return;
@@ -99,80 +206,213 @@ export function TextLayer({ url, boxes, onChange, selectedId, onSelect }: Props)
   }, [drag, boxes, onChange]);
 
   const addAt = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest("[data-box]")) return;
     const el = wrapRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    const id = Math.random().toString(36).slice(2);
-    onChange([
-      ...boxes,
-      {
-        id,
-        text: "Double-click to edit",
-        x: (e.clientX - r.left) / r.width,
-        y: (e.clientY - r.top) / r.height,
-        size: 0.06,
-        color: "#ffffff",
-        bold: true,
-        font: FONTS[0].value,
-        outline: true,
-      },
-    ]);
-    onSelect(id);
+    const box = newTextBox((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+    onChange([...boxes, box]);
+    onSelect(box.id);
+    focusNext.current = box.id;
   };
 
   return (
     <div
       ref={wrapRef}
       className="relative select-none overflow-hidden rounded-md border border-border bg-muted"
-      onDoubleClick={addAt}
+      onClick={addAt}
     >
-      <img src={url} alt="canvas" className="block w-full" draggable={false} />
+      <img
+        src={url}
+        alt="canvas"
+        className="block w-full"
+        draggable={false}
+        style={filterCss ? { filter: filterCss } : undefined}
+      />
       {boxes.map((b) => (
         <div
           key={b.id}
-          onPointerDown={(e) => {
-            const el = wrapRef.current!;
-            const r = el.getBoundingClientRect();
+          data-box={b.id}
+          contentEditable
+          suppressContentEditableWarning
+          onFocus={() => onSelect(b.id)}
+          onInput={(e) =>
+            onChange(
+              boxes.map((x) =>
+                x.id === b.id
+                  ? { ...x, text: (e.target as HTMLElement).innerText.replace(/\n$/, "") }
+                  : x,
+              ),
+            )
+          }
+          onClick={(e) => {
+            e.stopPropagation();
             onSelect(b.id);
-            setDrag({
-              id: b.id,
-              mode: "move",
-              dx: (e.clientX - r.left) / r.width - b.x,
-              dy: (e.clientY - r.top) / r.height - b.y,
-            });
           }}
-          className={`absolute cursor-move whitespace-pre ${
-            selectedId === b.id ? "outline outline-2 outline-primary" : ""
+          className={`absolute min-w-[1ch] cursor-text whitespace-pre outline-none ${
+            selectedId === b.id ? "ring-2 ring-primary" : "ring-1 ring-white/30"
           }`}
           style={{
             left: `${b.x * 100}%`,
             top: `${b.y * 100}%`,
             fontSize: `${Math.max(6, b.size * wrapH)}px`,
             color: b.color,
+            opacity: b.opacity,
             fontWeight: b.bold ? 700 : 400,
+            fontStyle: b.italic ? "italic" : "normal",
+            textDecoration: b.underline ? "underline" : "none",
             fontFamily: b.font,
-            textShadow: b.outline ? "0 0 3px rgba(0,0,0,.7)" : undefined,
-            lineHeight: 1,
+            textAlign: b.align,
+            letterSpacing: `${b.letterSpacing}em`,
+            background: b.bg ? b.bgColor : "transparent",
+            padding: b.bg ? "0.16em" : 0,
+            textShadow: b.outline ? "0 0 3px rgba(0,0,0,.75)" : undefined,
+            transform: b.rotation ? `rotate(${b.rotation}deg)` : undefined,
+            transformOrigin: "top left",
+            lineHeight: 1.18,
           }}
         >
-          {b.text || " "}
-          {selectedId === b.id && (
+          {b.text}
+        </div>
+      ))}
+      {/* Move badges sit outside the editable node so typing is never disturbed */}
+      {boxes.map((b) =>
+        selectedId === b.id ? (
+          <span key={`h-${b.id}`}>
+            <button
+              type="button"
+              aria-label="Move text"
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                const r = wrapRef.current!.getBoundingClientRect();
+                setDrag({
+                  id: b.id,
+                  mode: "move",
+                  dx: (e.clientX - r.left) / r.width - b.x,
+                  dy: (e.clientY - r.top) / r.height - b.y,
+                });
+              }}
+              className="absolute z-10 flex h-6 w-6 -translate-y-1/2 translate-x-1 cursor-move items-center justify-center rounded-full border-2 border-background bg-primary text-primary-foreground shadow"
+              style={{
+                left: `calc(${b.x * 100}% + ${measureWidth(b, wrapH)}px)`,
+                top: `${b.y * 100}%`,
+              }}
+            >
+              <Move className="h-3 w-3" />
+            </button>
             <span
+              onClick={(e) => e.stopPropagation()}
               onPointerDown={(e) => {
                 e.stopPropagation();
                 setDrag({ id: b.id, mode: "resize", startY: e.clientY, startSize: b.size });
               }}
-              className="absolute -bottom-2 -right-2 h-4 w-4 cursor-nwse-resize rounded-full border-2 border-background bg-primary"
+              className="absolute z-10 h-4 w-4 cursor-nwse-resize rounded-full border-2 border-background bg-primary shadow"
+              style={{
+                left: `calc(${b.x * 100}% + ${measureWidth(b, wrapH)}px)`,
+                top: `calc(${b.y * 100}% + ${b.size * wrapH * 1.18}px)`,
+              }}
             />
-          )}
-        </div>
-      ))}
+          </span>
+        ) : null,
+      )}
       {boxes.length === 0 && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <span className="rounded-full bg-background/80 px-3 py-1 text-xs font-medium text-foreground">
-            <Type className="mr-1 inline h-3 w-3" /> Double-click the image to add text
+            <Type className="mr-1 inline h-3 w-3" /> Click the image to add text
           </span>
         </div>
+      )}
+    </div>
+  );
+}
+
+/** Rough on-screen width of a box, used to park the handles at its corner. */
+function measureWidth(b: TextBox, wrapH: number) {
+  const px = Math.max(6, b.size * wrapH);
+  const longest = b.text.split("\n").reduce((m, l) => Math.max(m, l.length), 1);
+  return Math.max(px * 0.8, longest * px * 0.52);
+}
+
+export function TextLayerList({
+  boxes,
+  selectedId,
+  onSelect,
+  onChange,
+}: {
+  boxes: TextBox[];
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+  onChange: (b: TextBox[]) => void;
+}) {
+  const move = (i: number, dir: -1 | 1) => {
+    const j = i + dir;
+    if (j < 0 || j >= boxes.length) return;
+    const next = boxes.slice();
+    [next[i], next[j]] = [next[j], next[i]];
+    onChange(next);
+  };
+  return (
+    <div className="rounded-md border border-border bg-muted/30 p-2">
+      <div className="mb-1 flex items-center justify-between text-[11px] font-semibold text-muted-foreground">
+        <span>Text layers</span>
+        <span>{boxes.length}</span>
+      </div>
+      {boxes.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground">No text yet.</p>
+      ) : (
+        <ul className="space-y-1">
+          {boxes.map((b, i) => (
+            <li
+              key={b.id}
+              onClick={() => onSelect(b.id)}
+              className={`flex cursor-pointer items-center gap-1 rounded px-1.5 py-1 text-[11px] ${
+                selectedId === b.id ? "bg-primary/15 text-primary" : "hover:bg-accent"
+              }`}
+            >
+              <span className="truncate">
+                Text {i + 1}
+                {b.text ? ` · ${b.text.slice(0, 12)}` : ""}
+              </span>
+              <span className="ml-auto flex items-center gap-0.5">
+                <button
+                  type="button"
+                  aria-label="Move up"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    move(i, -1);
+                  }}
+                  className="rounded p-0.5 hover:bg-background"
+                >
+                  <ArrowUp className="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Move down"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    move(i, 1);
+                  }}
+                  className="rounded p-0.5 hover:bg-background"
+                >
+                  <ArrowDown className="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Delete text"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onChange(boxes.filter((x) => x.id !== b.id));
+                    if (selectedId === b.id) onSelect(null);
+                  }}
+                  className="rounded p-0.5 text-destructive hover:bg-background"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
@@ -182,25 +422,27 @@ export function TextBoxControls({
   box,
   onChange,
   onDelete,
+  onDuplicate,
 }: {
   box: TextBox;
   onChange: (b: TextBox) => void;
   onDelete: () => void;
+  onDuplicate: () => void;
 }) {
   return (
-    <div className="space-y-2 rounded-md border border-border bg-muted/30 p-3">
+    <div className="space-y-2 rounded-md border border-border bg-muted/30 p-2">
       <textarea
         value={box.text}
         onChange={(e) => onChange({ ...box, text: e.target.value })}
         rows={2}
-        className="w-full rounded border border-input bg-background px-2 py-1 text-sm"
+        className="w-full rounded border border-input bg-background px-2 py-1 text-xs"
         placeholder="Type text…"
       />
-      <div className="flex flex-wrap items-center gap-2 text-xs">
+      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
         <select
           value={box.font}
           onChange={(e) => onChange({ ...box, font: e.target.value })}
-          className="rounded border border-input bg-background px-2 py-1"
+          className="rounded border border-input bg-background px-1.5 py-1"
         >
           {FONTS.map((f) => (
             <option key={f.label} value={f.value}>
@@ -210,47 +452,156 @@ export function TextBoxControls({
         </select>
         <input
           type="color"
+          aria-label="Text colour"
           value={box.color}
           onChange={(e) => onChange({ ...box, color: e.target.value })}
-          className="h-7 w-10"
+          className="h-7 w-8 rounded border border-input"
         />
-        <label className="flex items-center gap-1">
-          <input
-            type="checkbox"
-            checked={box.bold}
-            onChange={(e) => onChange({ ...box, bold: e.target.checked })}
-          />
-          Bold
-        </label>
-        <label className="flex items-center gap-1">
-          <input
-            type="checkbox"
-            checked={box.outline}
-            onChange={(e) => onChange({ ...box, outline: e.target.checked })}
-          />
+        <Toggle on={box.bold} onClick={() => onChange({ ...box, bold: !box.bold })}>
+          B
+        </Toggle>
+        <Toggle on={box.italic} onClick={() => onChange({ ...box, italic: !box.italic })}>
+          <span className="italic">I</span>
+        </Toggle>
+        <Toggle
+          on={box.underline}
+          onClick={() => onChange({ ...box, underline: !box.underline })}
+        >
+          <span className="underline">U</span>
+        </Toggle>
+        <Toggle on={box.outline} onClick={() => onChange({ ...box, outline: !box.outline })}>
           Outline
-        </label>
+        </Toggle>
+        <Toggle on={box.bg} onClick={() => onChange({ ...box, bg: !box.bg })}>
+          BG
+        </Toggle>
+        {box.bg && (
+          <input
+            type="color"
+            aria-label="Background colour"
+            value={box.bgColor}
+            onChange={(e) => onChange({ ...box, bgColor: e.target.value })}
+            className="h-7 w-8 rounded border border-input"
+          />
+        )}
+        <span className="flex items-center gap-0.5">
+          {(["left", "center", "right"] as const).map((a) => (
+            <Toggle key={a} on={box.align === a} onClick={() => onChange({ ...box, align: a })}>
+              {a === "left" ? (
+                <AlignLeft className="h-3 w-3" />
+              ) : a === "center" ? (
+                <AlignCenter className="h-3 w-3" />
+              ) : (
+                <AlignRight className="h-3 w-3" />
+              )}
+            </Toggle>
+          ))}
+        </span>
+      </div>
+      <MiniSlider
+        label="Size"
+        value={Math.round(box.size * 100)}
+        min={2}
+        max={40}
+        onChange={(v) => onChange({ ...box, size: v / 100 })}
+        suffix="%"
+      />
+      <MiniSlider
+        label="Opacity"
+        value={Math.round(box.opacity * 100)}
+        min={10}
+        max={100}
+        onChange={(v) => onChange({ ...box, opacity: v / 100 })}
+        suffix="%"
+      />
+      <MiniSlider
+        label="Letter spacing"
+        value={Math.round(box.letterSpacing * 100)}
+        min={-10}
+        max={50}
+        onChange={(v) => onChange({ ...box, letterSpacing: v / 100 })}
+      />
+      <MiniSlider
+        label="Rotation"
+        value={box.rotation}
+        min={-180}
+        max={180}
+        onChange={(v) => onChange({ ...box, rotation: v })}
+        suffix="°"
+      />
+      <div className="flex gap-1.5">
+        <button
+          type="button"
+          onClick={onDuplicate}
+          className="inline-flex items-center gap-1 rounded border border-input px-2 py-1 text-[11px] hover:bg-accent"
+        >
+          <Copy className="h-3 w-3" /> Duplicate
+        </button>
         <button
           type="button"
           onClick={onDelete}
-          className="ml-auto inline-flex items-center gap-1 rounded border border-input px-2 py-1 hover:bg-accent"
+          className="ml-auto inline-flex items-center gap-1 rounded border border-input px-2 py-1 text-[11px] text-destructive hover:bg-accent"
         >
           <Trash2 className="h-3 w-3" /> Delete
         </button>
       </div>
-      <div>
-        <label className="text-[11px] text-muted-foreground">
-          Size: {(box.size * 100).toFixed(0)}%
-        </label>
-        <input
-          type="range"
-          min={2}
-          max={40}
-          value={box.size * 100}
-          onChange={(e) => onChange({ ...box, size: +e.target.value / 100 })}
-          className="w-full accent-primary"
-        />
-      </div>
+    </div>
+  );
+}
+
+function Toggle({
+  on,
+  onClick,
+  children,
+}: {
+  on: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded border px-1.5 py-1 ${
+        on
+          ? "border-primary bg-primary text-primary-foreground"
+          : "border-input bg-background hover:bg-accent"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function MiniSlider({
+  label,
+  value,
+  min,
+  max,
+  onChange,
+  suffix = "",
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (v: number) => void;
+  suffix?: string;
+}) {
+  return (
+    <div>
+      <label className="text-[11px] text-muted-foreground">
+        {label}: {value}
+        {suffix}
+      </label>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => onChange(+e.target.value)}
+        className="w-full accent-primary"
+      />
     </div>
   );
 }
