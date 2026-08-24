@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, RotateCcw, RotateCw, Undo2, X } from "lucide-react";
-import type { CropRect } from "@/lib/compress-image";
+import { inscribedRect, type CropRect } from "@/lib/compress-image";
 
 interface Props {
   url: string;
@@ -89,6 +89,8 @@ export function CropPreview({
       window.removeEventListener("resize", measure);
     };
   }, [measure]);
+
+  const inscribed = inscribedRect(displaySize.w || 1, displaySize.h || 1, fineDeg);
 
   const scaleX = displaySize.w / naturalWidth || 1;
   const scaleY = displaySize.h / naturalHeight || 1;
@@ -363,7 +365,7 @@ export function CropPreview({
           )}
         </div>
         <p className="text-[11px] text-muted-foreground">
-          Adjust rotation and drag the corner handles to crop, then press Apply.
+          Rotate to straighten (corners are trimmed automatically) and drag the handles to crop, then press Apply.
         </p>
       </div>
     </div>
