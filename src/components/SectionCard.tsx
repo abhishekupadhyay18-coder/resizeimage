@@ -6,6 +6,7 @@ import {
   encodePng,
   loadBitmap,
   rotateBitmap,
+  rotateBitmapCropped,
   setJpegDpi,
   type CompressResult,
   type CropRect,
@@ -147,7 +148,7 @@ export function SectionCard({
   const rotateFine = async (deg: number) => {
     if (!bitmap || deg === 0) return;
     setBusy(true);
-    const rotated = await rotateBitmap(bitmap, deg);
+    const rotated = await rotateBitmapCropped(bitmap, deg);
     setBitmap(rotated);
     setOriginalBitmap(rotated);
     updatePreview(rotated);

@@ -7,6 +7,7 @@ import {
   loadBitmap,
   mergeVertical,
   rotateBitmap,
+  rotateBitmapCropped,
   type CompressResult,
   type CropRect,
 } from "@/lib/compress-image";
