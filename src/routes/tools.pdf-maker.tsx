@@ -13,7 +13,13 @@ import {
 import { PDFDocument } from "pdf-lib";
 import { ToolShell } from "@/components/ToolShell";
 import { CameraCapture } from "@/components/CameraCapture";
-import { loadBitmap, cropBitmap, rotateBitmap, type CropRect } from "@/lib/compress-image";
+import {
+  loadBitmap,
+  cropBitmap,
+  rotateBitmap,
+  rotateBitmapCropped,
+  type CropRect,
+} from "@/lib/compress-image";
 import { canvasToJpegBlob, enhance, type EnhanceMode } from "@/lib/image-enhance";
 import { CropPreview } from "@/components/CropPreview";
 import { downloadBytes } from "@/lib/pdf-utils";
@@ -481,7 +487,7 @@ function PageEditor({
             onReset={() => undefined}
             onRotateLeft={() => applyRotate(-90)}
             onRotateRight={() => applyRotate(90)}
-            onRotateFine={(d) => applyRotate(d)}
+            onRotateFine={(d) => applyRotateFine(d)}
             disabled={busy}
           />
         </div>
