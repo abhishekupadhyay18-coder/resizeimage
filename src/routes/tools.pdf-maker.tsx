@@ -434,6 +434,15 @@ function PageEditor({
       setBusy(false);
     }
   };
+  const applyRotateFine = async (deg: number) => {
+    setBusy(true);
+    try {
+      const bmp = await rotateBitmapCropped(shot.bitmap, deg);
+      await commitBitmap(bmp);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-3">
