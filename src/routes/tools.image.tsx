@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Camera,
-  Crop as CropIcon,
   Download,
   Droplet,
   Image as ImageI,
@@ -12,36 +11,38 @@ import {
   RotateCcw,
   ScanLine,
   SlidersHorizontal,
-  Sparkles,
   Sun,
   Type,
   Undo2,
   Upload,
-  Wand2,
-  Wand,
 } from "lucide-react";
 import { toast } from "sonner";
 import { ToolShell } from "@/components/ToolShell";
 import {
   applyCssFilter,
+  bilateralDenoise,
   bitmapToCanvas,
   canvasToBlob,
-  denoiseCanvas,
   flipCanvas,
+  regionBlurCanvas,
   resizeCanvas,
-  sharpenCanvas,
+  unsharpMask,
 } from "@/lib/image-filters";
 import {
   rotateBitmap,
+  rotateBitmapCropped,
   cropBitmap,
   compressBelow,
   loadBitmap,
+  setJpegDpi,
 } from "@/lib/compress-image";
 import { CropPreview } from "@/components/CropPreview";
 import { CameraCapture } from "@/components/CameraCapture";
+import { BlurBrush } from "@/components/image/BlurBrush";
 import { downloadBlob } from "@/lib/pdf-utils";
 import {
   TextLayer,
+  TextLayerList,
   TextBoxControls,
   drawTextBoxes,
   type TextBox,
@@ -60,52 +61,86 @@ export const Route = createFileRoute("/tools/image")({
       { property: "og:title", content: "Image Tools" },
       {
         property: "og:description",
-        content: "Client-side image editor: transform, text, filters, adjustments and compression.",
+        content:
+          "Client-side image editor: transform, text, filters, adjustments and compression.",
       },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: Page,
 });
 
-type Tool =
-  | "cropedit"
-  | "transform"
-  | "text"
-  | "bright"
-  | "color"
-  | "sharpen"
-  | "blur"
-  | "denoise"
-  | "compress"
-  | "convert";
+type Tool = "crc" | "text" | "bright" | "color" | "blur" | "denoise" | "convert";
 
-const TOOLS: { key: Tool; label: string; icon: typeof CropIcon }[] = [
-  { key: "cropedit", label: "Crop & Rotate", icon: ScanLine },
-  { key: "transform", label: "Transform", icon: Wand },
+const TOOLS: { key: Tool; label: string; icon: typeof ScanLine }[] = [
+  { key: "crc", label: "Crop, Rotate & Compress", icon: ScanLine },
   { key: "text", label: "Add text", icon: Type },
   { key: "bright", label: "Bright / Contrast", icon: Sun },
   { key: "color", label: "Colour", icon: Palette },
-  { key: "sharpen", label: "Sharpen", icon: Wand2 },
   { key: "blur", label: "Blur", icon: Droplet },
   { key: "denoise", label: "Denoise", icon: SlidersHorizontal },
-  { key: "compress", label: "Compress", icon: Sparkles },
   { key: "convert", label: "Convert", icon: ImageI },
 ];
 
+interface Adjust {
+  brightness: number;
+  contrast: number;
+  exposure: number;
+  highlights: number;
+  sharpness: number;
+  saturate: number;
+  hue: number;
+  gray: number;
+}
+
+const DEFAULT_ADJUST: Adjust = {
+  brightness: 100,
+  contrast: 100,
+  exposure: 0,
+  highlights: 0,
+  sharpness: 0,
+  saturate: 100,
+  hue: 0,
+  gray: 0,
+};
+
+function adjustCss(a: Adjust): string | null {
+  const brightness = a.brightness * (1 + a.exposure / 200);
+  const contrast = a.contrast * (1 + a.highlights / 300);
+  const parts = [
+    `brightness(${brightness.toFixed(1)}%)`,
+    `contrast(${contrast.toFixed(1)}%)`,
+    `saturate(${a.saturate}%)`,
+    `hue-rotate(${a.hue}deg)`,
+    `grayscale(${a.gray}%)`,
+  ];
+  const clean =
+    a.brightness === 100 &&
+    a.contrast === 100 &&
+    a.exposure === 0 &&
+    a.highlights === 0 &&
+    a.saturate === 100 &&
+    a.hue === 0 &&
+    a.gray === 0;
+  return clean ? null : parts.join(" ");
+}
+
 function Page() {
-  const [tool, setTool] = useState<Tool>("cropedit");
+  const [tool, setTool] = useState<Tool>("crc");
   const [file, setFile] = useState<File | null>(null);
   const [history, setHistory] = useState<ImageBitmap[]>([]);
   const [idx, setIdx] = useState(-1);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [filterCss, setFilterCss] = useState<string | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [adjust, setAdjust] = useState<Adjust>(DEFAULT_ADJUST);
   const urlRef = useRef<string | null>(null);
 
   const bitmap = idx >= 0 ? history[idx] : null;
+  const filterCss = adjustCss(adjust);
+  const adjustDirty = filterCss !== null || adjust.sharpness > 0;
 
-  // Keep a single preview URL in sync with the current bitmap.
   useEffect(() => {
     if (!bitmap) return;
     let cancelled = false;
@@ -133,7 +168,6 @@ function Page() {
     (bmp: ImageBitmap) => {
       setHistory((h) => [...h.slice(0, idx + 1), bmp]);
       setIdx((i) => i + 1);
-      setFilterCss(null);
     },
     [idx],
   );
@@ -145,6 +179,20 @@ function Page() {
     [push],
   );
 
+  /** Bake the live adjustment sliders into the pixels before a pixel op. */
+  const flatten = useCallback(async (): Promise<ImageBitmap | null> => {
+    if (!bitmap) return null;
+    if (!adjustDirty) return bitmap;
+    let out = bitmap;
+    if (filterCss) out = await createImageBitmap(await applyCssFilter(out, filterCss));
+    if (adjust.sharpness > 0) {
+      out = await createImageBitmap(await unsharpMask(out, (adjust.sharpness / 100) * 2));
+    }
+    push(out);
+    setAdjust(DEFAULT_ADJUST);
+    return out;
+  }, [bitmap, adjustDirty, filterCss, adjust.sharpness, push]);
+
   const load = async (f: File) => {
     try {
       setError(null);
@@ -152,7 +200,7 @@ function Page() {
       setFile(f);
       setHistory([bmp]);
       setIdx(0);
-      setFilterCss(null);
+      setAdjust(DEFAULT_ADJUST);
     } catch {
       setError("Could not read this image.");
     }
@@ -163,17 +211,16 @@ function Page() {
     setHistory([]);
     setIdx(-1);
     setPreviewUrl(null);
-    setFilterCss(null);
+    setAdjust(DEFAULT_ADJUST);
   };
-
-  const panelProps = { bitmap: bitmap!, onResult: pushCanvas, setPreview: setFilterCss };
 
   const [boxes, setBoxes] = useState<TextBox[]>([]);
   const [selectedBox, setSelectedBox] = useState<string | null>(null);
 
   const applyText = async () => {
-    if (!bitmap || boxes.length === 0) return;
-    const c = bitmapToCanvas(bitmap);
+    const base = await flatten();
+    if (!base || boxes.length === 0) return;
+    const c = bitmapToCanvas(base);
     drawTextBoxes(c, boxes);
     await pushCanvas(c);
     setBoxes([]);
@@ -219,21 +266,18 @@ function Page() {
           >
             <Camera className="h-6 w-6" />
             <span className="text-sm font-semibold">Capture from camera</span>
-            <span className="text-[11px] text-muted-foreground">Live preview, rear camera</span>
+            <span className="text-[11px] text-muted-foreground">Tap-to-focus live preview</span>
           </button>
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_230px]">
+        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_240px]">
           {/* Left: the single working image */}
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 disabled={idx <= 0}
-                onClick={() => {
-                  setIdx((i) => Math.max(0, i - 1));
-                  setFilterCss(null);
-                }}
+                onClick={() => setIdx((i) => Math.max(0, i - 1))}
                 className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-2.5 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-40"
               >
                 <Undo2 className="h-3.5 w-3.5" /> Undo
@@ -241,10 +285,7 @@ function Page() {
               <button
                 type="button"
                 disabled={idx >= history.length - 1}
-                onClick={() => {
-                  setIdx((i) => Math.min(history.length - 1, i + 1));
-                  setFilterCss(null);
-                }}
+                onClick={() => setIdx((i) => Math.min(history.length - 1, i + 1))}
                 className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-2.5 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-40"
               >
                 <Redo2 className="h-3.5 w-3.5" /> Redo
@@ -254,7 +295,7 @@ function Page() {
                 disabled={idx === 0}
                 onClick={() => {
                   setIdx(0);
-                  setFilterCss(null);
+                  setAdjust(DEFAULT_ADJUST);
                 }}
                 className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-2.5 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-40"
               >
@@ -269,22 +310,28 @@ function Page() {
 
             {previewUrl && bitmap && (
               <>
-                {tool === "cropedit" || tool === "transform" ? (
+                {tool === "crc" ? (
                   <CropPreview
                     url={previewUrl}
                     naturalWidth={bitmap.width}
                     naturalHeight={bitmap.height}
-                    onApplyCrop={async (r) => pushCanvas(bitmapToCanvas(await cropBitmap(bitmap, r)))}
+                    onApplyCrop={async (r) => {
+                      const base = (await flatten()) ?? bitmap;
+                      pushCanvas(bitmapToCanvas(await cropBitmap(base, r)));
+                    }}
                     onReset={() => setIdx(0)}
-                    onRotateLeft={async () =>
-                      pushCanvas(bitmapToCanvas(await rotateBitmap(bitmap, -90)))
-                    }
-                    onRotateRight={async () =>
-                      pushCanvas(bitmapToCanvas(await rotateBitmap(bitmap, 90)))
-                    }
-                    onRotateFine={async (d) =>
-                      pushCanvas(bitmapToCanvas(await rotateBitmap(bitmap, d)))
-                    }
+                    onRotateLeft={async () => {
+                      const base = (await flatten()) ?? bitmap;
+                      pushCanvas(bitmapToCanvas(await rotateBitmap(base, -90)));
+                    }}
+                    onRotateRight={async () => {
+                      const base = (await flatten()) ?? bitmap;
+                      pushCanvas(bitmapToCanvas(await rotateBitmap(base, 90)));
+                    }}
+                    onRotateFine={async (d) => {
+                      const base = (await flatten()) ?? bitmap;
+                      pushCanvas(bitmapToCanvas(await rotateBitmapCropped(base, d)));
+                    }}
                   />
                 ) : tool === "text" ? (
                   <TextLayer
@@ -293,6 +340,15 @@ function Page() {
                     onChange={setBoxes}
                     selectedId={selectedBox}
                     onSelect={setSelectedBox}
+                    filterCss={filterCss}
+                  />
+                ) : tool === "blur" ? (
+                  <BlurPreviewSlot
+                    url={previewUrl}
+                    bitmap={bitmap}
+                    filterCss={filterCss}
+                    onResult={pushCanvas}
+                    flatten={flatten}
                   />
                 ) : (
                   <div className="rounded-md border border-border bg-muted p-2 text-center">
@@ -325,8 +381,9 @@ function Page() {
               <button
                 type="button"
                 onClick={async () => {
-                  if (!bitmap) return;
-                  const blob = await canvasToBlob(bitmapToCanvas(bitmap), "image/png");
+                  const base = await flatten();
+                  if (!base) return;
+                  const blob = await canvasToBlob(bitmapToCanvas(base), "image/png");
                   downloadBlob(blob, "edited.png");
                 }}
                 className="ml-auto inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
@@ -345,10 +402,7 @@ function Page() {
                 <button
                   key={t.key}
                   type="button"
-                  onClick={() => {
-                    setTool(t.key);
-                    setFilterCss(null);
-                  }}
+                  onClick={() => setTool(t.key)}
                   className={cn(
                     "flex flex-col items-center gap-1 rounded-lg border px-1.5 py-2 text-[10px] font-medium transition",
                     tool === t.key
@@ -364,32 +418,40 @@ function Page() {
 
             {bitmap && (
               <div className="rounded-xl border border-border bg-card p-3 shadow-sm">
-                {tool === "cropedit" && (
-                  <div className="space-y-2 text-xs text-muted-foreground">
-                    <h3 className="text-sm font-semibold text-foreground">Crop &amp; Rotate</h3>
-                    Drag the corners on the image, use the rotation slider, then press Apply.
-                    <Row>
-                      <Btn onClick={async () => pushCanvas(await flipCanvas(bitmap, "h"))}>
-                        Flip H
-                      </Btn>
-                      <Btn onClick={async () => pushCanvas(await flipCanvas(bitmap, "v"))}>
-                        Flip V
-                      </Btn>
-                    </Row>
-                  </div>
+                {tool === "crc" && (
+                  <CropRotateCompressPanel
+                    bitmap={bitmap}
+                    flatten={flatten}
+                    onResult={pushCanvas}
+                  />
                 )}
-                {tool === "transform" && <TransformPanel {...panelProps} />}
                 {tool === "text" && (
                   <div className="space-y-2">
                     <h3 className="text-sm font-semibold">Add text</h3>
                     <p className="text-[11px] text-muted-foreground">
-                      Double-click the image to add a text box. Drag to move, use the corner dot to
-                      resize, and edit the words below.
+                      Click the image to drop a text box and start typing. Use the badge at its
+                      corner to move it, the dot below to resize.
                     </p>
+                    <TextLayerList
+                      boxes={boxes}
+                      selectedId={selectedBox}
+                      onSelect={setSelectedBox}
+                      onChange={setBoxes}
+                    />
                     {current ? (
                       <TextBoxControls
                         box={current}
                         onChange={(nb) => setBoxes(boxes.map((b) => (b.id === nb.id ? nb : b)))}
+                        onDuplicate={() => {
+                          const copy = {
+                            ...current,
+                            id: Math.random().toString(36).slice(2),
+                            x: Math.min(0.95, current.x + 0.03),
+                            y: Math.min(0.95, current.y + 0.03),
+                          };
+                          setBoxes([...boxes, copy]);
+                          setSelectedBox(copy.id);
+                        }}
                         onDelete={() => {
                           setBoxes(boxes.filter((b) => b.id !== current.id));
                           setSelectedBox(null);
@@ -397,7 +459,7 @@ function Page() {
                       />
                     ) : (
                       <p className="text-[11px] text-muted-foreground">
-                        Select a text box to edit it.
+                        Select a text box to edit its style.
                       </p>
                     )}
                     <Btn onClick={applyText} disabled={boxes.length === 0}>
@@ -405,14 +467,20 @@ function Page() {
                     </Btn>
                   </div>
                 )}
-                {tool === "bright" && <BrightPanel {...panelProps} />}
-                {tool === "color" && <ColorPanel {...panelProps} />}
-                {tool === "sharpen" && <SharpenPanel {...panelProps} />}
-                {tool === "blur" && <BlurPanel {...panelProps} />}
-                {tool === "denoise" && <DenoisePanel {...panelProps} />}
-                {tool === "compress" && <CompressPanel bitmap={bitmap} />}
+                {tool === "bright" && <BrightPanel adjust={adjust} setAdjust={setAdjust} />}
+                {tool === "color" && <ColorPanel adjust={adjust} setAdjust={setAdjust} />}
+                {tool === "blur" && (
+                  <div className="space-y-2 text-[11px] text-muted-foreground">
+                    <h3 className="text-sm font-semibold text-foreground">Blur area</h3>
+                    Paint over the part of the image you want blurred, then apply. Brush size and
+                    strength are on the image panel.
+                  </div>
+                )}
+                {tool === "denoise" && (
+                  <DenoisePanel bitmap={bitmap} flatten={flatten} onResult={pushCanvas} />
+                )}
                 {tool === "convert" && (
-                  <ConvertPanel bitmap={bitmap} originalName={file.name} />
+                  <ConvertPanel bitmap={bitmap} flatten={flatten} originalName={file.name} />
                 )}
               </div>
             )}
@@ -433,11 +501,7 @@ function Page() {
   );
 }
 
-interface PanelProps {
-  bitmap: ImageBitmap;
-  onResult: (c: HTMLCanvasElement) => Promise<void> | void;
-  setPreview: (css: string | null) => void;
-}
+type Flatten = () => Promise<ImageBitmap | null>;
 
 function Row({ children }: { children: React.ReactNode }) {
   return <div className="flex flex-wrap items-center gap-2">{children}</div>;
@@ -503,21 +567,125 @@ function Slider({
   );
 }
 
-function TransformPanel({ bitmap, onResult }: PanelProps) {
+const DPI_PRESETS = [72, 150, 300, 600];
+
+function DpiPicker({
+  dpi,
+  setDpi,
+}: {
+  dpi: number;
+  setDpi: (n: number) => void;
+}) {
+  const [custom, setCustom] = useState("");
+  return (
+    <div className="space-y-1">
+      <div className="text-[11px] font-semibold text-muted-foreground">DPI</div>
+      <Row>
+        {DPI_PRESETS.map((d) => (
+          <button
+            key={d}
+            type="button"
+            onClick={() => {
+              setDpi(d);
+              setCustom("");
+            }}
+            className={cn(
+              "rounded-full border px-2.5 py-1 text-[11px] font-medium",
+              dpi === d && !custom
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-input bg-background hover:bg-accent",
+            )}
+          >
+            {d}
+          </button>
+        ))}
+        <input
+          type="number"
+          value={custom}
+          placeholder="custom"
+          onChange={(e) => {
+            setCustom(e.target.value);
+            const v = parseInt(e.target.value, 10);
+            if (v > 0) setDpi(v);
+          }}
+          className="w-20 rounded border border-input bg-background px-2 py-1 text-[11px]"
+        />
+      </Row>
+    </div>
+  );
+}
+
+const KB_PRESETS = [20, 30, 50, 100];
+
+function CropRotateCompressPanel({
+  bitmap,
+  flatten,
+  onResult,
+}: {
+  bitmap: ImageBitmap;
+  flatten: Flatten;
+  onResult: (c: HTMLCanvasElement) => Promise<void> | void;
+}) {
   const [w, setW] = useState(bitmap.width);
   const [h, setH] = useState(bitmap.height);
   const [lock, setLock] = useState(true);
   const ratio = bitmap.width / bitmap.height;
+
+  const [targetKB, setTargetKB] = useState(50);
+  const [custom, setCustom] = useState("");
+  const [dpi, setDpi] = useState(300);
+  const [busy, setBusy] = useState(false);
+  const [info, setInfo] = useState<string | null>(null);
 
   useEffect(() => {
     setW(bitmap.width);
     setH(bitmap.height);
   }, [bitmap]);
 
+  const target = useMemo(() => {
+    const c = parseFloat(custom);
+    return custom && !Number.isNaN(c) && c > 0 ? c : targetKB;
+  }, [custom, targetKB]);
+
+  const compress = async () => {
+    setBusy(true);
+    setInfo(null);
+    try {
+      const base = (await flatten()) ?? bitmap;
+      const r = await compressBelow(base, target * 1024);
+      const out = await setJpegDpi(r.blob, dpi);
+      setInfo(
+        `${(out.size / 1024).toFixed(1)} KB · ${r.width}×${r.height} · ${dpi} DPI${
+          r.downscaled ? " (downscaled to fit)" : " · original size kept"
+        }`,
+      );
+      downloadBlob(out, `compressed-${Math.round(target)}kb.jpg`);
+      toast.success(`Compressed to ${(out.size / 1024).toFixed(1)} KB`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-3">
-      <h3 className="text-sm font-semibold">Transform</h3>
-      <div className="space-y-2">
+      <h3 className="text-sm font-semibold">Crop, Rotate &amp; Compress</h3>
+      <p className="text-[11px] text-muted-foreground">
+        Drag the handles on the image, use the rotation slider, then press Apply.
+      </p>
+      <Row>
+        <Btn
+          onClick={async () => onResult(await flipCanvas((await flatten()) ?? bitmap, "h"))}
+        >
+          Flip H
+        </Btn>
+        <Btn
+          onClick={async () => onResult(await flipCanvas((await flatten()) ?? bitmap, "v"))}
+        >
+          Flip V
+        </Btn>
+      </Row>
+
+      <div className="space-y-2 border-t border-border pt-2">
         <div className="text-[11px] font-semibold text-muted-foreground">Resize</div>
         <Row>
           <label className="text-xs">
@@ -551,147 +719,283 @@ function TransformPanel({ bitmap, onResult }: PanelProps) {
           <input type="checkbox" checked={lock} onChange={(e) => setLock(e.target.checked)} />
           lock ratio
         </label>
-        <Btn onClick={async () => onResult(await resizeCanvas(bitmap, w, h))}>Apply resize</Btn>
+        <Btn onClick={async () => onResult(await resizeCanvas((await flatten()) ?? bitmap, w, h))}>
+          Apply resize
+        </Btn>
       </div>
+
       <div className="space-y-2 border-t border-border pt-2">
-        <div className="text-[11px] font-semibold text-muted-foreground">Rotate &amp; flip</div>
+        <div className="text-[11px] font-semibold text-muted-foreground">Compress</div>
         <Row>
-          <Btn onClick={async () => onResult(bitmapToCanvas(await rotateBitmap(bitmap, -90)))}>
-            ⟲ 90°
-          </Btn>
-          <Btn onClick={async () => onResult(bitmapToCanvas(await rotateBitmap(bitmap, 90)))}>
-            ⟳ 90°
-          </Btn>
-          <Btn onClick={async () => onResult(await flipCanvas(bitmap, "h"))}>Flip H</Btn>
-          <Btn onClick={async () => onResult(await flipCanvas(bitmap, "v"))}>Flip V</Btn>
+          {KB_PRESETS.map((k) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => {
+                setTargetKB(k);
+                setCustom("");
+              }}
+              className={cn(
+                "rounded-full border px-2.5 py-1 text-[11px] font-medium",
+                !custom && targetKB === k
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-input bg-background hover:bg-accent",
+              )}
+            >
+              {k} KB
+            </button>
+          ))}
+          <input
+            type="number"
+            value={custom}
+            onChange={(e) => setCustom(e.target.value)}
+            placeholder="custom KB"
+            className="w-24 rounded border border-input bg-background px-2 py-1 text-[11px]"
+          />
         </Row>
-        <p className="text-[11px] text-muted-foreground">
-          Fine-degree rotation and cropping live in the Crop &amp; Rotate tool.
-        </p>
+        <DpiPicker dpi={dpi} setDpi={setDpi} />
+        <Btn onClick={compress} busy={busy}>
+          Compress below {Math.round(target)} KB
+        </Btn>
+        {info && <div className="text-[11px] text-muted-foreground">{info}</div>}
       </div>
     </div>
   );
 }
 
-function BrightPanel({ bitmap, onResult, setPreview }: PanelProps) {
-  const [b, setB] = useState(100);
-  const [c, setC] = useState(100);
-  const css = `brightness(${b}%) contrast(${c}%)`;
-  useEffect(() => {
-    setPreview(b === 100 && c === 100 ? null : css);
-  }, [b, c, css, setPreview]);
+function BrightPanel({
+  adjust,
+  setAdjust,
+}: {
+  adjust: Adjust;
+  setAdjust: (fn: (a: Adjust) => Adjust) => void;
+}) {
   return (
     <div className="space-y-3">
       <h3 className="text-sm font-semibold">Brightness / Contrast</h3>
-      <Slider label="Brightness" value={b} min={0} max={200} onChange={setB} suffix="%" />
-      <Slider label="Contrast" value={c} min={0} max={200} onChange={setC} suffix="%" />
+      <p className="text-[11px] text-muted-foreground">
+        Live preview — values stay put when you switch tools and are baked in on export.
+      </p>
+      <Slider
+        label="Brightness"
+        value={adjust.brightness}
+        min={20}
+        max={200}
+        onChange={(v) => setAdjust((a) => ({ ...a, brightness: v }))}
+        suffix="%"
+      />
+      <Slider
+        label="Contrast"
+        value={adjust.contrast}
+        min={20}
+        max={200}
+        onChange={(v) => setAdjust((a) => ({ ...a, contrast: v }))}
+        suffix="%"
+      />
+      <Slider
+        label="Exposure"
+        value={adjust.exposure}
+        min={-100}
+        max={100}
+        onChange={(v) => setAdjust((a) => ({ ...a, exposure: v }))}
+      />
+      <Slider
+        label="Highlights"
+        value={adjust.highlights}
+        min={-100}
+        max={100}
+        onChange={(v) => setAdjust((a) => ({ ...a, highlights: v }))}
+      />
+      <Slider
+        label="Sharpness"
+        value={adjust.sharpness}
+        min={0}
+        max={100}
+        onChange={(v) => setAdjust((a) => ({ ...a, sharpness: v }))}
+        suffix="%"
+      />
       <Row>
-        <Btn onClick={async () => onResult(await applyCssFilter(bitmap, css))}>Apply</Btn>
         <Btn
-          onClick={() => {
-            setB(100);
-            setC(100);
-          }}
+          onClick={() =>
+            setAdjust((a) => ({
+              ...a,
+              brightness: 100,
+              contrast: 100,
+              exposure: 0,
+              highlights: 0,
+              sharpness: 0,
+            }))
+          }
         >
           Reset
         </Btn>
         <Btn
-          onClick={() => {
-            setB(108);
-            setC(115);
-          }}
+          onClick={() =>
+            setAdjust((a) => ({
+              ...a,
+              brightness: 108,
+              contrast: 118,
+              exposure: 6,
+              highlights: 10,
+              sharpness: 45,
+            }))
+          }
         >
-          Auto
+          Auto enhance
         </Btn>
       </Row>
     </div>
   );
 }
 
-function ColorPanel({ bitmap, onResult, setPreview }: PanelProps) {
-  const [sat, setSat] = useState(100);
-  const [hue, setHue] = useState(0);
-  const [gray, setGray] = useState(0);
-  const css = `saturate(${sat}%) hue-rotate(${hue}deg) grayscale(${gray}%)`;
-  useEffect(() => {
-    setPreview(sat === 100 && hue === 0 && gray === 0 ? null : css);
-  }, [sat, hue, gray, css, setPreview]);
+function ColorPanel({
+  adjust,
+  setAdjust,
+}: {
+  adjust: Adjust;
+  setAdjust: (fn: (a: Adjust) => Adjust) => void;
+}) {
   return (
     <div className="space-y-3">
       <h3 className="text-sm font-semibold">Colour</h3>
-      <Slider label="Saturation" value={sat} min={0} max={300} onChange={setSat} suffix="%" />
-      <Slider label="Hue" value={hue} min={0} max={360} onChange={setHue} suffix="°" />
-      <Slider label="Grayscale" value={gray} min={0} max={100} onChange={setGray} suffix="%" />
-      <Row>
-        <Btn onClick={async () => onResult(await applyCssFilter(bitmap, css))}>Apply</Btn>
-        <Btn
-          onClick={() => {
-            setSat(100);
-            setHue(0);
-            setGray(0);
-          }}
-        >
-          Reset
-        </Btn>
-      </Row>
-    </div>
-  );
-}
-
-function BlurPanel({ bitmap, onResult, setPreview }: PanelProps) {
-  const [amt, setAmt] = useState(4);
-  useEffect(() => {
-    setPreview(amt === 0 ? null : `blur(${amt}px)`);
-  }, [amt, setPreview]);
-  return (
-    <div className="space-y-3">
-      <h3 className="text-sm font-semibold">Blur</h3>
-      <Slider label="Radius" value={amt} min={0} max={30} onChange={setAmt} suffix="px" />
-      <Btn onClick={async () => onResult(await applyCssFilter(bitmap, `blur(${amt}px)`))}>
-        Apply blur
-      </Btn>
-    </div>
-  );
-}
-
-function SharpenPanel({ bitmap, onResult }: PanelProps) {
-  const [amt, setAmt] = useState(1);
-  const [busy, setBusy] = useState(false);
-  return (
-    <div className="space-y-3">
-      <h3 className="text-sm font-semibold">Sharpen</h3>
-      <Slider label="Amount" value={amt} min={0.2} max={3} step={0.1} onChange={setAmt} />
+      <p className="text-[11px] text-muted-foreground">
+        Sliders act live — no apply needed.
+      </p>
+      <Slider
+        label="Saturation"
+        value={adjust.saturate}
+        min={0}
+        max={300}
+        onChange={(v) => setAdjust((a) => ({ ...a, saturate: v }))}
+        suffix="%"
+      />
+      <Slider
+        label="Hue"
+        value={adjust.hue}
+        min={0}
+        max={360}
+        onChange={(v) => setAdjust((a) => ({ ...a, hue: v }))}
+        suffix="°"
+      />
+      <Slider
+        label="Grayscale"
+        value={adjust.gray}
+        min={0}
+        max={100}
+        onChange={(v) => setAdjust((a) => ({ ...a, gray: v }))}
+        suffix="%"
+      />
       <Btn
-        busy={busy}
-        onClick={async () => {
-          setBusy(true);
-          try {
-            await onResult(await sharpenCanvas(bitmap, amt));
-          } finally {
-            setBusy(false);
-          }
-        }}
+        onClick={() => setAdjust((a) => ({ ...a, saturate: 100, hue: 0, gray: 0 }))}
       >
-        Apply sharpen
+        Reset colour
       </Btn>
     </div>
   );
 }
 
-function DenoisePanel({ bitmap, onResult }: PanelProps) {
+function BlurPreviewSlot({
+  url,
+  bitmap,
+  filterCss,
+  onResult,
+  flatten,
+}: {
+  url: string;
+  bitmap: ImageBitmap;
+  filterCss: string | null;
+  onResult: (c: HTMLCanvasElement) => Promise<void> | void;
+  flatten: Flatten;
+}) {
+  const [brush, setBrush] = useState(18);
+  const [strength, setStrength] = useState(6);
+  const [busy, setBusy] = useState(false);
+  const maskRef = useRef<HTMLCanvasElement | null>(null);
+  const onMask = useCallback((m: HTMLCanvasElement | null) => {
+    maskRef.current = m;
+  }, []);
+
+  return (
+    <div className="space-y-2">
+      <BlurBrush
+        url={url}
+        width={bitmap.width}
+        height={bitmap.height}
+        brush={brush}
+        filterCss={filterCss}
+        onMask={onMask}
+      />
+      <div className="grid gap-2 rounded-md border border-border bg-muted/40 p-2 sm:grid-cols-2">
+        <Slider label="Brush size" value={brush} min={4} max={60} onChange={setBrush} />
+        <Slider
+          label="Strength"
+          value={strength}
+          min={1}
+          max={14}
+          onChange={setStrength}
+          suffix="px"
+        />
+        <div className="sm:col-span-2">
+          <Btn
+            busy={busy}
+            onClick={async () => {
+              if (!maskRef.current) {
+                toast.error("Paint over an area first");
+                return;
+              }
+              setBusy(true);
+              try {
+                const base = (await flatten()) ?? bitmap;
+                await onResult(await regionBlurCanvas(base, maskRef.current, strength));
+                toast.success("Area blurred");
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            Apply blur to painted area
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DenoisePanel({
+  bitmap,
+  flatten,
+  onResult,
+}: {
+  bitmap: ImageBitmap;
+  flatten: Flatten;
+  onResult: (c: HTMLCanvasElement) => Promise<void> | void;
+}) {
+  const [strength, setStrength] = useState(60);
+  const [detail, setDetail] = useState(35);
   const [busy, setBusy] = useState(false);
   return (
     <div className="space-y-3">
       <h3 className="text-sm font-semibold">Denoise</h3>
       <p className="text-[11px] text-muted-foreground">
-        3×3 median filter. Slow on very large images.
+        Edge-preserving smoothing: removes grain while keeping text and edges crisp.
       </p>
+      <Slider label="Strength" value={strength} min={10} max={100} onChange={setStrength} suffix="%" />
+      <Slider
+        label="Detail recovery"
+        value={detail}
+        min={0}
+        max={100}
+        onChange={setDetail}
+        suffix="%"
+      />
       <Btn
         busy={busy}
         onClick={async () => {
           setBusy(true);
           try {
-            await onResult(await denoiseCanvas(bitmap));
+            const base = (await flatten()) ?? bitmap;
+            await onResult(await bilateralDenoise(base, strength / 100, detail / 100));
+            toast.success("Denoised");
           } finally {
             setBusy(false);
           }
@@ -703,31 +1007,38 @@ function DenoisePanel({ bitmap, onResult }: PanelProps) {
   );
 }
 
-const KB_PRESETS = [20, 30, 50, 100];
-
-function CompressPanel({ bitmap }: { bitmap: ImageBitmap }) {
-  const [targetKB, setTargetKB] = useState<number>(50);
-  const [custom, setCustom] = useState("");
+function ConvertPanel({
+  bitmap,
+  flatten,
+  originalName,
+}: {
+  bitmap: ImageBitmap;
+  flatten: Flatten;
+  originalName: string;
+}) {
+  const [t, setT] = useState<"jpeg" | "png" | "webp" | "pdf">("jpeg");
   const [busy, setBusy] = useState(false);
-  const [info, setInfo] = useState<string | null>(null);
-
-  const target = useMemo(() => {
-    const c = parseFloat(custom);
-    return custom && !Number.isNaN(c) && c > 0 ? c : targetKB;
-  }, [custom, targetKB]);
+  const base = originalName.replace(/\.[^.]+$/, "");
 
   const run = async () => {
     setBusy(true);
-    setInfo(null);
     try {
-      const r = await compressBelow(bitmap, target * 1024);
-      setInfo(
-        `${r.sizeKB.toFixed(1)} KB · ${r.width}×${r.height}${
-          r.downscaled ? " (had to downscale to fit)" : " · original size kept"
-        }`,
-      );
-      downloadBlob(r.blob, `compressed-${Math.round(target)}kb.jpg`);
-      toast.success(`Compressed to ${r.sizeKB.toFixed(1)} KB`);
+      const bmp = (await flatten()) ?? bitmap;
+      const canvas = bitmapToCanvas(bmp);
+      if (t === "pdf") {
+        const { PDFDocument } = await import("pdf-lib");
+        const jpg = await canvasToBlob(canvas, "image/jpeg", 0.95);
+        const doc = await PDFDocument.create();
+        const img = await doc.embedJpg(await jpg.arrayBuffer());
+        const page = doc.addPage([img.width, img.height]);
+        page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
+        const bytes = await doc.save();
+        downloadBlob(new Blob([bytes as BlobPart], { type: "application/pdf" }), `${base}.pdf`);
+      } else {
+        const blob = await canvasToBlob(canvas, `image/${t}`, 0.95);
+        downloadBlob(blob, `${base}.${t === "jpeg" ? "jpg" : t}`);
+      }
+      toast.success(`Converted to ${t.toUpperCase()}`);
     } finally {
       setBusy(false);
     }
@@ -735,55 +1046,9 @@ function CompressPanel({ bitmap }: { bitmap: ImageBitmap }) {
 
   return (
     <div className="space-y-3">
-      <h3 className="text-sm font-semibold">Compress</h3>
-      <p className="text-[11px] text-muted-foreground">
-        Output is always strictly below the chosen size, at the best possible quality.
-      </p>
-      <Row>
-        {KB_PRESETS.map((k) => (
-          <button
-            key={k}
-            type="button"
-            onClick={() => {
-              setTargetKB(k);
-              setCustom("");
-            }}
-            className={cn(
-              "rounded-full border px-2.5 py-1 text-[11px] font-medium",
-              !custom && targetKB === k
-                ? "border-primary bg-primary text-primary-foreground"
-                : "border-input bg-background hover:bg-accent",
-            )}
-          >
-            {k} KB
-          </button>
-        ))}
-      </Row>
-      <label className="block text-[11px] text-muted-foreground">
-        Custom (KB)
-        <input
-          type="number"
-          value={custom}
-          onChange={(e) => setCustom(e.target.value)}
-          placeholder="e.g. 75"
-          className="mt-1 w-24 rounded border border-input bg-background px-2 py-1 text-xs"
-        />
-      </label>
-      <Btn onClick={run} busy={busy}>
-        Compress below {Math.round(target)} KB
-      </Btn>
-      {info && <div className="text-[11px] text-muted-foreground">{info}</div>}
-    </div>
-  );
-}
-
-function ConvertPanel({ bitmap, originalName }: { bitmap: ImageBitmap; originalName: string }) {
-  const [t, setT] = useState<"jpeg" | "png" | "webp">("jpeg");
-  return (
-    <div className="space-y-3">
       <h3 className="text-sm font-semibold">Convert format</h3>
       <Row>
-        {(["jpeg", "png", "webp"] as const).map((k) => (
+        {(["jpeg", "png", "webp", "pdf"] as const).map((k) => (
           <button
             key={k}
             type="button"
@@ -799,14 +1064,7 @@ function ConvertPanel({ bitmap, originalName }: { bitmap: ImageBitmap; originalN
           </button>
         ))}
       </Row>
-      <Btn
-        onClick={async () => {
-          const c = bitmapToCanvas(bitmap);
-          const blob = await canvasToBlob(c, `image/${t}`, 0.95);
-          const base = originalName.replace(/\.[^.]+$/, "");
-          downloadBlob(blob, `${base}.${t === "jpeg" ? "jpg" : t}`);
-        }}
-      >
+      <Btn onClick={run} busy={busy}>
         Convert &amp; download
       </Btn>
     </div>
