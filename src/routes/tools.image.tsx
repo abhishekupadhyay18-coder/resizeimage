@@ -215,14 +215,7 @@ function Page() {
   const [selectedBox, setSelectedBox] = useState<string | null>(null);
 
   const applyText = async () => {
-    const base = await flatten();
-    if (!base || boxes.length === 0) return;
-    const c = bitmapToCanvas(base);
-    drawTextBoxes(c, boxes);
-    await pushCanvas(c);
-    setBoxes([]);
-    setSelectedBox(null);
-    toast.success("Text applied");
+    if (boxes.length > 0) toast.success("Text applied — you can keep editing it");
   };
 
   const current = boxes.find((b) => b.id === selectedBox) ?? null;
@@ -472,9 +465,6 @@ function Page() {
                     Paint over the part of the image you want blurred, then apply. Brush size and
                     strength are on the image panel.
                   </div>
-                )}
-                {tool === "denoise" && (
-                  <DenoisePanel bitmap={bitmap} flatten={flatten} onResult={pushCanvas} />
                 )}
                 {tool === "convert" && (
                   <ConvertPanel bitmap={bitmap} flatten={flatten} originalName={file.name} />
