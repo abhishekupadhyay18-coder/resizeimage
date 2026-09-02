@@ -143,11 +143,16 @@ export function TextLayer({
   const wrapRef = useRef<HTMLDivElement>(null);
   const [wrapH, setWrapH] = useState(0);
   const focusNext = useRef<string | null>(null);
+  const boxesRef = useRef(boxes);
   const [drag, setDrag] = useState<
     | { id: string; mode: "move"; dx: number; dy: number }
     | { id: string; mode: "resize"; startY: number; startSize: number }
     | null
   >(null);
+
+  useEffect(() => {
+    boxesRef.current = boxes;
+  }, [boxes]);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -182,12 +187,12 @@ export function TextLayer({
       if (!el) return;
       const r = el.getBoundingClientRect();
       onChange(
-        boxes.map((b) => {
+        boxesRef.current.map((b) => {
           if (b.id !== drag.id) return b;
           if (drag.mode === "move") {
             return {
               ...b,
-              x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width - drag.dx)),
+              x: Math.min(1 - b.w, Math.max(0, (e.clientX - r.left) / r.width - drag.dx)),
               y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height - drag.dy)),
             };
           }
@@ -203,7 +208,7 @@ export function TextLayer({
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [drag, boxes, onChange]);
+  }, [drag, onChange]);
 
   const addAt = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest("[data-box]")) return;
