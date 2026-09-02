@@ -10,7 +10,6 @@ import {
   Redo2,
   RotateCcw,
   ScanLine,
-  SlidersHorizontal,
   Sun,
   Type,
   Undo2,
@@ -20,7 +19,6 @@ import { toast } from "sonner";
 import { ToolShell } from "@/components/ToolShell";
 import {
   applyCssFilter,
-  bilateralDenoise,
   bitmapToCanvas,
   canvasToBlob,
   flipCanvas,
@@ -44,7 +42,6 @@ import {
   TextLayer,
   TextLayerList,
   TextBoxControls,
-  drawTextBoxes,
   type TextBox,
 } from "@/components/image/TextLayer";
 import { cn } from "@/lib/utils";
@@ -71,7 +68,7 @@ export const Route = createFileRoute("/tools/image")({
   component: Page,
 });
 
-type Tool = "crc" | "text" | "bright" | "color" | "blur" | "denoise" | "convert";
+type Tool = "crc" | "text" | "bright" | "color" | "blur" | "convert";
 
 const TOOLS: { key: Tool; label: string; icon: typeof ScanLine }[] = [
   { key: "crc", label: "Crop, Rotate & Compress", icon: ScanLine },
@@ -79,7 +76,6 @@ const TOOLS: { key: Tool; label: string; icon: typeof ScanLine }[] = [
   { key: "bright", label: "Bright / Contrast", icon: Sun },
   { key: "color", label: "Colour", icon: Palette },
   { key: "blur", label: "Blur", icon: Droplet },
-  { key: "denoise", label: "Denoise", icon: SlidersHorizontal },
   { key: "convert", label: "Convert", icon: ImageI },
 ];
 
@@ -218,14 +214,7 @@ function Page() {
   const [selectedBox, setSelectedBox] = useState<string | null>(null);
 
   const applyText = async () => {
-    const base = await flatten();
-    if (!base || boxes.length === 0) return;
-    const c = bitmapToCanvas(base);
-    drawTextBoxes(c, boxes);
-    await pushCanvas(c);
-    setBoxes([]);
-    setSelectedBox(null);
-    toast.success("Text applied");
+    if (boxes.length > 0) toast.success("Text applied — you can keep editing it");
   };
 
   const current = boxes.find((b) => b.id === selectedBox) ?? null;
@@ -475,9 +464,6 @@ function Page() {
                     Paint over the part of the image you want blurred, then apply. Brush size and
                     strength are on the image panel.
                   </div>
-                )}
-                {tool === "denoise" && (
-                  <DenoisePanel bitmap={bitmap} flatten={flatten} onResult={pushCanvas} />
                 )}
                 {tool === "convert" && (
                   <ConvertPanel bitmap={bitmap} flatten={flatten} originalName={file.name} />
@@ -843,6 +829,35 @@ function BrightPanel({
         >
           Auto enhance
         </Btn>
+        <Btn
+          onClick={() =>
+            setAdjust((a) => ({
+              ...a,
+              brightness: 112,
+              contrast: 125,
+              exposure: 8,
+              highlights: -4,
+              sharpness: 62,
+            }))
+          }
+        >
+          Photograph
+        </Btn>
+        <Btn
+          onClick={() =>
+            setAdjust((a) => ({
+              ...a,
+              brightness: 106,
+              contrast: 138,
+              exposure: 2,
+              highlights: -18,
+              sharpness: 78,
+              saturate: 82,
+            }))
+          }
+        >
+          Study document
+        </Btn>
       </Row>
     </div>
   );
@@ -957,52 +972,6 @@ function BlurPreviewSlot({
           </Btn>
         </div>
       </div>
-    </div>
-  );
-}
-
-function DenoisePanel({
-  bitmap,
-  flatten,
-  onResult,
-}: {
-  bitmap: ImageBitmap;
-  flatten: Flatten;
-  onResult: (c: HTMLCanvasElement) => Promise<void> | void;
-}) {
-  const [strength, setStrength] = useState(60);
-  const [detail, setDetail] = useState(35);
-  const [busy, setBusy] = useState(false);
-  return (
-    <div className="space-y-3">
-      <h3 className="text-sm font-semibold">Denoise</h3>
-      <p className="text-[11px] text-muted-foreground">
-        Edge-preserving smoothing: removes grain while keeping text and edges crisp.
-      </p>
-      <Slider label="Strength" value={strength} min={10} max={100} onChange={setStrength} suffix="%" />
-      <Slider
-        label="Detail recovery"
-        value={detail}
-        min={0}
-        max={100}
-        onChange={setDetail}
-        suffix="%"
-      />
-      <Btn
-        busy={busy}
-        onClick={async () => {
-          setBusy(true);
-          try {
-            const base = (await flatten()) ?? bitmap;
-            await onResult(await bilateralDenoise(base, strength / 100, detail / 100));
-            toast.success("Denoised");
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        Apply denoise
-      </Btn>
     </div>
   );
 }
