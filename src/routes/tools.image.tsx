@@ -42,7 +42,6 @@ import {
   TextLayer,
   TextLayerList,
   TextBoxControls,
-  drawTextBoxes,
   type TextBox,
 } from "@/components/image/TextLayer";
 import { cn } from "@/lib/utils";
