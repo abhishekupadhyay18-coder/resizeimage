@@ -10,7 +10,6 @@ import {
   Redo2,
   RotateCcw,
   ScanLine,
-  SlidersHorizontal,
   Sun,
   Type,
   Undo2,
