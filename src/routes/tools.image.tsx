@@ -830,6 +830,35 @@ function BrightPanel({
         >
           Auto enhance
         </Btn>
+        <Btn
+          onClick={() =>
+            setAdjust((a) => ({
+              ...a,
+              brightness: 112,
+              contrast: 125,
+              exposure: 8,
+              highlights: -4,
+              sharpness: 62,
+            }))
+          }
+        >
+          Photograph
+        </Btn>
+        <Btn
+          onClick={() =>
+            setAdjust((a) => ({
+              ...a,
+              brightness: 106,
+              contrast: 138,
+              exposure: 2,
+              highlights: -18,
+              sharpness: 78,
+              saturate: 82,
+            }))
+          }
+        >
+          Study document
+        </Btn>
       </Row>
     </div>
   );
