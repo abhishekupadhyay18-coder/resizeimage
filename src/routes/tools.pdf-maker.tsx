@@ -23,6 +23,7 @@ import {
 import { canvasToJpegBlob, enhance, type EnhanceMode } from "@/lib/image-enhance";
 import { CropPreview } from "@/components/CropPreview";
 import { downloadBytes } from "@/lib/pdf-utils";
+import { pdfToImages } from "@/lib/pdf-utils";
 
 export const Route = createFileRoute("/tools/pdf-maker")({
   head: () => ({
@@ -79,14 +80,28 @@ function Page() {
     const next: Shot[] = [];
     for (const f of Array.from(files)) {
       try {
-        const bmp = await loadBitmap(f);
-        const url = URL.createObjectURL(f);
-        next.push({
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          bitmap: bmp,
-          previewUrl: url,
-          mode: "auto",
-        });
+        if (f.type === "application/pdf" || /\.pdf$/i.test(f.name)) {
+          const pages = await pdfToImages(f, 2, "jpeg");
+          for (const page of pages) {
+            const bmp = await createImageBitmap(page.blob);
+            const url = URL.createObjectURL(page.blob);
+            next.push({
+              id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              bitmap: bmp,
+              previewUrl: url,
+              mode: "auto",
+            });
+          }
+        } else {
+          const bmp = await loadBitmap(f);
+          const url = URL.createObjectURL(f);
+          next.push({
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            bitmap: bmp,
+            previewUrl: url,
+            mode: "auto",
+          });
+        }
       } catch {
         /* skip */
       }
@@ -211,11 +226,11 @@ function Page() {
         <label className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-border bg-muted/30 px-4 py-6 hover:bg-muted">
           <Upload className="h-6 w-6 text-muted-foreground" />
           <span className="text-sm font-semibold">Add from files</span>
-          <span className="text-[11px] text-muted-foreground">JPG / PNG / WEBP</span>
+           <span className="text-[11px] text-muted-foreground">JPG / PNG / WEBP / PDF</span>
           <input
             ref={fileRef}
             type="file"
-            accept="image/*"
+             accept="image/*,application/pdf,.pdf"
             multiple
             className="hidden"
             onChange={(e) => {
