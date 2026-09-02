@@ -977,52 +977,6 @@ function BlurPreviewSlot({
   );
 }
 
-function DenoisePanel({
-  bitmap,
-  flatten,
-  onResult,
-}: {
-  bitmap: ImageBitmap;
-  flatten: Flatten;
-  onResult: (c: HTMLCanvasElement) => Promise<void> | void;
-}) {
-  const [strength, setStrength] = useState(60);
-  const [detail, setDetail] = useState(35);
-  const [busy, setBusy] = useState(false);
-  return (
-    <div className="space-y-3">
-      <h3 className="text-sm font-semibold">Denoise</h3>
-      <p className="text-[11px] text-muted-foreground">
-        Edge-preserving smoothing: removes grain while keeping text and edges crisp.
-      </p>
-      <Slider label="Strength" value={strength} min={10} max={100} onChange={setStrength} suffix="%" />
-      <Slider
-        label="Detail recovery"
-        value={detail}
-        min={0}
-        max={100}
-        onChange={setDetail}
-        suffix="%"
-      />
-      <Btn
-        busy={busy}
-        onClick={async () => {
-          setBusy(true);
-          try {
-            const base = (await flatten()) ?? bitmap;
-            await onResult(await bilateralDenoise(base, strength / 100, detail / 100));
-            toast.success("Denoised");
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        Apply denoise
-      </Btn>
-    </div>
-  );
-}
-
 function ConvertPanel({
   bitmap,
   flatten,
