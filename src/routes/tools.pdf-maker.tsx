@@ -22,8 +22,7 @@ import {
 } from "@/lib/compress-image";
 import { canvasToJpegBlob, enhance, type EnhanceMode } from "@/lib/image-enhance";
 import { CropPreview } from "@/components/CropPreview";
-import { downloadBytes } from "@/lib/pdf-utils";
-import { pdfToImages } from "@/lib/pdf-utils";
+import { downloadBytes, pdfToImages } from "@/lib/pdf-utils";
 
 export const Route = createFileRoute("/tools/pdf-maker")({
   head: () => ({
