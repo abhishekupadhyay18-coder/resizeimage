@@ -69,7 +69,7 @@ export const Route = createFileRoute("/tools/image")({
   component: Page,
 });
 
-type Tool = "crc" | "text" | "bright" | "color" | "blur" | "denoise" | "convert";
+type Tool = "crc" | "text" | "bright" | "color" | "blur" | "convert";
 
 const TOOLS: { key: Tool; label: string; icon: typeof ScanLine }[] = [
   { key: "crc", label: "Crop, Rotate & Compress", icon: ScanLine },
@@ -77,7 +77,6 @@ const TOOLS: { key: Tool; label: string; icon: typeof ScanLine }[] = [
   { key: "bright", label: "Bright / Contrast", icon: Sun },
   { key: "color", label: "Colour", icon: Palette },
   { key: "blur", label: "Blur", icon: Droplet },
-  { key: "denoise", label: "Denoise", icon: SlidersHorizontal },
   { key: "convert", label: "Convert", icon: ImageI },
 ];
 
