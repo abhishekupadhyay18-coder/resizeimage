@@ -20,7 +20,6 @@ import { toast } from "sonner";
 import { ToolShell } from "@/components/ToolShell";
 import {
   applyCssFilter,
-  bilateralDenoise,
   bitmapToCanvas,
   canvasToBlob,
   flipCanvas,
