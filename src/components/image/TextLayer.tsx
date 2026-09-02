@@ -235,50 +235,16 @@ export function TextLayer({
         style={filterCss ? { filter: filterCss } : undefined}
       />
       {boxes.map((b) => (
-        <div
+        <EditableTextBox
           key={b.id}
-          data-box={b.id}
-          contentEditable
-          suppressContentEditableWarning
-          onFocus={() => onSelect(b.id)}
-          onInput={(e) =>
-            onChange(
-              boxes.map((x) =>
-                x.id === b.id
-                  ? { ...x, text: (e.target as HTMLElement).innerText.replace(/\n$/, "") }
-                  : x,
-              ),
-            )
+          box={b}
+          wrapH={wrapH}
+          selected={selectedId === b.id}
+          onSelect={() => onSelect(b.id)}
+          onChange={(text) =>
+            onChange(boxesRef.current.map((x) => (x.id === b.id ? { ...x, text } : x)))
           }
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelect(b.id);
-          }}
-          className={`absolute min-w-[1ch] cursor-text whitespace-pre outline-none ${
-            selectedId === b.id ? "ring-2 ring-primary" : "ring-1 ring-white/30"
-          }`}
-          style={{
-            left: `${b.x * 100}%`,
-            top: `${b.y * 100}%`,
-            fontSize: `${Math.max(6, b.size * wrapH)}px`,
-            color: b.color,
-            opacity: b.opacity,
-            fontWeight: b.bold ? 700 : 400,
-            fontStyle: b.italic ? "italic" : "normal",
-            textDecoration: b.underline ? "underline" : "none",
-            fontFamily: b.font,
-            textAlign: b.align,
-            letterSpacing: `${b.letterSpacing}em`,
-            background: b.bg ? b.bgColor : "transparent",
-            padding: b.bg ? "0.16em" : 0,
-            textShadow: b.outline ? "0 0 3px rgba(0,0,0,.75)" : undefined,
-            transform: b.rotation ? `rotate(${b.rotation}deg)` : undefined,
-            transformOrigin: "top left",
-            lineHeight: 1.18,
-          }}
-        >
-          {b.text}
-        </div>
+        />
       ))}
       {/* Move badges sit outside the editable node so typing is never disturbed */}
       {boxes.map((b) =>
@@ -290,7 +256,11 @@ export function TextLayer({
               onClick={(e) => e.stopPropagation()}
               onPointerDown={(e) => {
                 e.stopPropagation();
-                const r = wrapRef.current!.getBoundingClientRect();
+                const el = wrapRef.current;
+                if (!el) return;
+                e.preventDefault();
+                e.currentTarget.setPointerCapture(e.pointerId);
+                const r = el.getBoundingClientRect();
                 setDrag({
                   id: b.id,
                   mode: "move",
@@ -298,9 +268,9 @@ export function TextLayer({
                   dy: (e.clientY - r.top) / r.height - b.y,
                 });
               }}
-              className="absolute z-10 flex h-6 w-6 -translate-y-1/2 translate-x-1 cursor-move items-center justify-center rounded-full border-2 border-background bg-primary text-primary-foreground shadow"
+              className="absolute z-10 flex h-8 w-8 -translate-x-1/2 -translate-y-1/2 cursor-move touch-none items-center justify-center rounded-full border-2 border-background bg-primary text-primary-foreground shadow"
               style={{
-                left: `calc(${b.x * 100}% + ${measureWidth(b, wrapH)}px)`,
+                left: `calc(${b.x * 100}% + ${b.w * 100}%)`,
                 top: `${b.y * 100}%`,
               }}
             >
@@ -310,11 +280,13 @@ export function TextLayer({
               onClick={(e) => e.stopPropagation()}
               onPointerDown={(e) => {
                 e.stopPropagation();
+                e.preventDefault();
+                e.currentTarget.setPointerCapture(e.pointerId);
                 setDrag({ id: b.id, mode: "resize", startY: e.clientY, startSize: b.size });
               }}
-              className="absolute z-10 h-4 w-4 cursor-nwse-resize rounded-full border-2 border-background bg-primary shadow"
+              className="absolute z-10 h-7 w-7 -translate-x-1/2 -translate-y-1/2 cursor-nwse-resize touch-none rounded-full border-2 border-background bg-primary shadow"
               style={{
-                left: `calc(${b.x * 100}% + ${measureWidth(b, wrapH)}px)`,
+                left: `calc(${b.x * 100}% + ${b.w * 100}%)`,
                 top: `calc(${b.y * 100}% + ${b.size * wrapH * 1.18}px)`,
               }}
             />
@@ -332,11 +304,65 @@ export function TextLayer({
   );
 }
 
-/** Rough on-screen width of a box, used to park the handles at its corner. */
-function measureWidth(b: TextBox, wrapH: number) {
-  const px = Math.max(6, b.size * wrapH);
-  const longest = b.text.split("\n").reduce((m, l) => Math.max(m, l.length), 1);
-  return Math.max(px * 0.8, longest * px * 0.52);
+function EditableTextBox({
+  box,
+  wrapH,
+  selected,
+  onSelect,
+  onChange,
+}: {
+  box: TextBox;
+  wrapH: number;
+  selected: boolean;
+  onSelect: () => void;
+  onChange: (text: string) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || document.activeElement === el) return;
+    if (el.innerText !== box.text) el.innerText = box.text;
+  }, [box.text]);
+
+  return (
+    <div
+      ref={ref}
+      data-box={box.id}
+      contentEditable
+      suppressContentEditableWarning
+      spellCheck={false}
+      onFocus={onSelect}
+      onInput={(e) => onChange((e.currentTarget.innerText || "").replace(/\n$/, ""))}
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect();
+      }}
+      className={`absolute min-w-[1ch] cursor-text whitespace-pre-wrap break-words outline-none ${
+        selected ? "ring-2 ring-primary" : "ring-1 ring-white/30"
+      }`}
+      style={{
+        left: `${box.x * 100}%`,
+        top: `${box.y * 100}%`,
+        width: `${Math.max(8, box.w * 100)}%`,
+        fontSize: `${Math.max(6, box.size * wrapH)}px`,
+        color: box.color,
+        opacity: box.opacity,
+        fontWeight: box.bold ? 700 : 400,
+        fontStyle: box.italic ? "italic" : "normal",
+        textDecoration: box.underline ? "underline" : "none",
+        fontFamily: box.font,
+        textAlign: box.align,
+        letterSpacing: `${box.letterSpacing}em`,
+        background: box.bg ? box.bgColor : "transparent",
+        padding: box.bg ? "0.16em" : 0,
+        textShadow: box.outline ? "0 0 3px rgba(0,0,0,.75)" : undefined,
+        transform: box.rotation ? `rotate(${box.rotation}deg)` : undefined,
+        transformOrigin: "top left",
+        lineHeight: 1.18,
+      }}
+    />
+  );
 }
 
 export function TextLayerList({
