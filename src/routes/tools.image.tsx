@@ -42,6 +42,7 @@ import {
   TextLayer,
   TextLayerList,
   TextBoxControls,
+  drawTextBoxes,
   type TextBox,
 } from "@/components/image/TextLayer";
 import { cn } from "@/lib/utils";
@@ -372,7 +373,9 @@ function Page() {
                 onClick={async () => {
                   const base = await flatten();
                   if (!base) return;
-                  const blob = await canvasToBlob(bitmapToCanvas(base), "image/png");
+                   const canvas = bitmapToCanvas(base);
+                   drawTextBoxes(canvas, boxes);
+                   const blob = await canvasToBlob(canvas, "image/png");
                   downloadBlob(blob, "edited.png");
                 }}
                 className="ml-auto inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
@@ -466,7 +469,12 @@ function Page() {
                   </div>
                 )}
                 {tool === "convert" && (
-                  <ConvertPanel bitmap={bitmap} flatten={flatten} originalName={file.name} />
+                  <ConvertPanel
+                    bitmap={bitmap}
+                    flatten={flatten}
+                    originalName={file.name}
+                    boxes={boxes}
+                  />
                 )}
               </div>
             )}
@@ -980,10 +988,12 @@ function ConvertPanel({
   bitmap,
   flatten,
   originalName,
+  boxes,
 }: {
   bitmap: ImageBitmap;
   flatten: Flatten;
   originalName: string;
+  boxes: TextBox[];
 }) {
   const [t, setT] = useState<"jpeg" | "png" | "webp" | "pdf">("jpeg");
   const [busy, setBusy] = useState(false);
@@ -994,6 +1004,7 @@ function ConvertPanel({
     try {
       const bmp = (await flatten()) ?? bitmap;
       const canvas = bitmapToCanvas(bmp);
+      drawTextBoxes(canvas, boxes);
       if (t === "pdf") {
         const { PDFDocument } = await import("pdf-lib");
         const jpg = await canvasToBlob(canvas, "image/jpeg", 0.95);
