@@ -112,6 +112,17 @@ export async function pdfToImages(
   file: File,
   scale = 2,
   format: "png" | "jpeg" = "png",
+  quality = 0.92,
+): Promise<{ blob: Blob; name: string }[]> {
+  return renderPdfPages(file, undefined, scale, format, quality);
+}
+
+export async function renderPdfPages(
+  file: File,
+  indices?: number[],
+  scale = 2,
+  format: "png" | "jpeg" = "png",
+  quality = 0.92,
 ): Promise<{ blob: Blob; name: string }[]> {
   const pdfjs = await import("pdfjs-dist");
   // Vite-friendly worker resolution
@@ -127,19 +138,63 @@ export async function pdfToImages(
   const mime = format === "png" ? "image/png" : "image/jpeg";
   const ext = format === "png" ? "png" : "jpg";
   const base = file.name.replace(/\.pdf$/i, "");
-  for (let i = 1; i <= doc.numPages; i++) {
+  const pageNumbers = indices?.map((index) => index + 1) ?? Array.from({ length: doc.numPages }, (_, i) => i + 1);
+  for (const i of pageNumbers) {
     const page = await doc.getPage(i);
     const viewport = page.getViewport({ scale });
     const c = document.createElement("canvas");
     c.width = viewport.width;
     c.height = viewport.height;
-    const ctx = c.getContext("2d")!;
+    const ctx = c.getContext("2d");
+    if (!ctx) throw new Error("Could not create a canvas for PDF rendering.");
     // @ts-ignore
     await page.render({ canvasContext: ctx, viewport, canvas: c }).promise;
     const blob = await new Promise<Blob>((res, rej) =>
-      c.toBlob((b) => (b ? res(b) : rej(new Error("toBlob failed"))), mime, 0.92),
+      c.toBlob((b) => (b ? res(b) : rej(new Error("toBlob failed"))), mime, quality),
     );
     out.push({ blob, name: `${base}-p${i}.${ext}` });
   }
   return out;
+}
+
+export async function compressPdfToTarget(
+  input: File | Uint8Array,
+  targetBytes: number,
+  onProgress?: (progress: number) => void,
+): Promise<{ bytes: Uint8Array; reachedTarget: boolean; originalBytes: number }> {
+  const source = input instanceof File ? input : new File([new Uint8Array(input)], "document.pdf", { type: "application/pdf" });
+  const originalBytes = source.size;
+  const candidates = [
+    { scale: 1.5, quality: 0.9 },
+    { scale: 1.25, quality: 0.86 },
+    { scale: 1, quality: 0.82 },
+    { scale: 0.85, quality: 0.78 },
+    { scale: 0.7, quality: 0.72 },
+    { scale: 0.55, quality: 0.65 },
+  ];
+  let best: Uint8Array | null = null;
+  let bestSize = Number.POSITIVE_INFINITY;
+
+  for (let attempt = 0; attempt < candidates.length; attempt++) {
+    const candidate = candidates[attempt];
+    const images = await pdfToImages(source, candidate.scale, "jpeg", candidate.quality);
+    const out = await PDFDocument.create();
+    for (const image of images) {
+      const embedded = await out.embedJpg(new Uint8Array(await image.blob.arrayBuffer()));
+      const page = out.addPage([embedded.width, embedded.height]);
+      page.drawImage(embedded, { x: 0, y: 0, width: embedded.width, height: embedded.height });
+    }
+    const bytes = await out.save();
+    if (bytes.length < bestSize) {
+      best = bytes;
+      bestSize = bytes.length;
+    }
+    onProgress?.(Math.round(((attempt + 1) / candidates.length) * 100));
+    if (bytes.length <= targetBytes) {
+      return { bytes, reachedTarget: true, originalBytes };
+    }
+  }
+
+  if (!best) throw new Error("Could not compress this PDF.");
+  return { bytes: best, reachedTarget: best.length <= targetBytes, originalBytes };
 }
