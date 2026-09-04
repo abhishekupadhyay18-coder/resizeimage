@@ -2,10 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   FileArchive,
   FileText,
-  FileSignature,
   ImageIcon,
   Layers,
-  Minimize2,
   ScanLine,
 } from "lucide-react";
 import { ToolCard } from "@/components/ToolCard";
@@ -18,7 +16,7 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "A collection of free browser tools: document image compressor, image editor, PDF editor, PDF compressor, file converter and PDF maker. All processing happens on your device.",
+          "A collection of free browser tools: document image compressor, image editor, complete PDF tools, file converter and PDF maker. All processing happens on your device.",
       },
       { property: "og:title", content: "Tools Hub — Compress, Convert, Edit PDF & Images" },
       {
@@ -48,23 +46,9 @@ const TOOLS = [
   {
     to: "/tools/pdf",
     title: "PDF Tools",
-    description: "Merge, split, organize pages.",
+    description: "Edit, compress, merge, split & organize.",
     icon: FileText,
     accent: "border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400",
-  },
-  {
-    to: "/tools/pdf-editor",
-    title: "PDF Editor",
-    description: "Add text, images & pages, then save.",
-    icon: FileSignature,
-    accent: "border-indigo-500/30 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400",
-  },
-  {
-    to: "/tools/pdf-compress",
-    title: "PDF Compressor",
-    description: "Shrink PDFs below any target size.",
-    icon: Minimize2,
-    accent: "border-teal-500/30 bg-teal-500/10 text-teal-600 dark:text-teal-400",
   },
   {
     to: "/tools/convert",
